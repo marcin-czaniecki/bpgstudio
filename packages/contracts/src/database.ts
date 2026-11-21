@@ -68,3 +68,61 @@ export const CloseSessionRequestSchema = z
   .object({ sessionId: z.uuid() })
   .strict();
 export type CloseSessionRequest = z.infer<typeof CloseSessionRequestSchema>;
+
+const ProfileFieldsShape = ConnectionParamsSchema.omit({
+  password: true,
+}).shape;
+
+const ProfileNameSchema = safeText(100)
+  .refine((v) => v.trim().length > 0, "Name is required")
+  .transform((v) => v.trim());
+
+/**
+ * Saved profile as the renderer sees it. There is deliberately no password
+ * field: once saved, a secret never crosses IPC again (only `hasSavedPassword`).
+ */
+export const ConnectionProfileSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  host: z.string(),
+  port: z.number().int(),
+  database: z.string(),
+  user: z.string(),
+  sslMode: z.enum(["disable", "verify-full"]),
+  connectTimeoutMs: z.number().int(),
+  hasSavedPassword: z.boolean(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type ConnectionProfile = z.infer<typeof ConnectionProfileSchema>;
+
+export const PasswordChangeSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("keep") }).strict(),
+  z.object({ action: z.literal("clear") }).strict(),
+  z
+    .object({ action: z.literal("set"), value: z.string().min(1).max(1024) })
+    .strict(),
+]);
+export type PasswordChange = z.infer<typeof PasswordChangeSchema>;
+
+export const SaveProfileRequestSchema = z
+  .object({
+    id: z.uuid().optional(),
+    name: ProfileNameSchema,
+    ...ProfileFieldsShape,
+    password: PasswordChangeSchema,
+  })
+  .strict();
+export type SaveProfileRequest = z.output<typeof SaveProfileRequestSchema>;
+export type SaveProfileRequestInput = z.input<typeof SaveProfileRequestSchema>;
+
+export const ProfileIdRequestSchema = z
+  .object({ profileId: z.uuid() })
+  .strict();
+export type ProfileIdRequest = z.infer<typeof ProfileIdRequestSchema>;
+
+/** `password` is a one-off for profiles without a saved password; never stored. */
+export const ProfileConnectRequestSchema = z
+  .object({ profileId: z.uuid(), password: z.string().max(1024).optional() })
+  .strict();
+export type ProfileConnectRequest = z.infer<typeof ProfileConnectRequestSchema>;

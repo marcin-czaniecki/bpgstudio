@@ -4,6 +4,6 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["packages/**/*.ts"],
+  "include": ["packages/**/*.ts", "e2e/**/*.ts"],
   "exclude": ["**/node_modules/**", "**/out/**"]
 }

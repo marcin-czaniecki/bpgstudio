@@ -1,7 +1,9 @@
 import { z } from "zod";
 import type {
   ConnectionParamsInput,
+  ConnectionProfile,
   ConnectionTestResult,
+  SaveProfileRequestInput,
   SessionInfo,
 } from "./database";
 
@@ -33,5 +35,18 @@ export interface BpgBridge {
     openSession(params: ConnectionParamsInput): Promise<SessionInfo>;
     closeSession(sessionId: string): Promise<void>;
     listSessions(): Promise<SessionInfo[]>;
+    testProfile(
+      profileId: string,
+      password?: string,
+    ): Promise<ConnectionTestResult>;
+    openProfileSession(
+      profileId: string,
+      password?: string,
+    ): Promise<SessionInfo>;
+  };
+  profiles: {
+    list(): Promise<ConnectionProfile[]>;
+    save(request: SaveProfileRequestInput): Promise<ConnectionProfile>;
+    delete(profileId: string): Promise<void>;
   };
 }

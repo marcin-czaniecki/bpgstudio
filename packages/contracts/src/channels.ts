@@ -12,6 +12,11 @@ export const IPC_CHANNELS = {
   dbOpenSession: "db:open-session",
   dbCloseSession: "db:close-session",
   dbListSessions: "db:list-sessions",
+  dbTestProfile: "db:test-profile",
+  dbOpenProfileSession: "db:open-profile-session",
+  profilesList: "profiles:list",
+  profilesSave: "profiles:save",
+  profilesDelete: "profiles:delete",
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

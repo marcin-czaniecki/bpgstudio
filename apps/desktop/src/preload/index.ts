@@ -1,6 +1,7 @@
 import type {
   AppInfo,
   BpgBridge,
+  ConnectionProfile,
   ConnectionTestResult,
   SessionInfo,
 } from "@bpg/contracts";
@@ -35,6 +36,23 @@ const bpg: BpgBridge = {
     closeSession: (sessionId) =>
       invoke<void>(IPC_CHANNELS.dbCloseSession, { sessionId }),
     listSessions: () => invoke<SessionInfo[]>(IPC_CHANNELS.dbListSessions),
+    testProfile: (profileId, password) =>
+      invoke<ConnectionTestResult>(IPC_CHANNELS.dbTestProfile, {
+        profileId,
+        password,
+      }),
+    openProfileSession: (profileId, password) =>
+      invoke<SessionInfo>(IPC_CHANNELS.dbOpenProfileSession, {
+        profileId,
+        password,
+      }),
+  },
+  profiles: {
+    list: () => invoke<ConnectionProfile[]>(IPC_CHANNELS.profilesList),
+    save: (request) =>
+      invoke<ConnectionProfile>(IPC_CHANNELS.profilesSave, request),
+    delete: (profileId) =>
+      invoke<void>(IPC_CHANNELS.profilesDelete, { profileId }),
   },
 };
 

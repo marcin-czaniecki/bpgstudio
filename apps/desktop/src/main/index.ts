@@ -1,17 +1,26 @@
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { AppInfoSchema, IPC_CHANNELS, NoPayloadSchema } from "@bpg/contracts";
-import { type DatabaseSession, SessionRegistry } from "@bpg/database-core";
+import {
+  type DatabaseSession,
+  ProfileService,
+  SessionRegistry,
+} from "@bpg/database-core";
 import { createPostgresAdapter } from "@bpg/database-postgres";
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, safeStorage } from "electron";
 import { registerConnectionHandlers } from "./ipc/connections";
+import { registerProfileHandlers } from "./ipc/profiles";
 import {
   createRendererUrlMatcher,
   createTrustedHandler,
   type SenderPolicy,
 } from "./ipc/trusted-handler";
+import { SafeStorageSecretStore } from "./storage/safe-storage-secret-store";
+import { SqliteProfileRepository } from "./storage/sqlite-profile-repository";
 
 let mainWindow: BrowserWindow | null = null;
+let profileRepository: SqliteProfileRepository | null = null;
 
 const sessions = new SessionRegistry<DatabaseSession>({
   // Log only the stable code: never driver text or connection parameters.
@@ -76,10 +85,30 @@ app.whenReady().then(() => {
     }),
   );
 
+  const adapter = createPostgresAdapter();
   registerConnectionHandlers(ipcMain, {
     policy: senderPolicy,
-    adapter: createPostgresAdapter(),
+    adapter,
     registry: sessions,
+  });
+
+  const userData = app.getPath("userData");
+  profileRepository = new SqliteProfileRepository(
+    join(userData, "bpg-studio.db"),
+  );
+  registerProfileHandlers(ipcMain, {
+    policy: senderPolicy,
+    adapter,
+    registry: sessions,
+    service: new ProfileService({
+      repository: profileRepository,
+      secrets: new SafeStorageSecretStore(
+        join(userData, "secrets.json"),
+        safeStorage,
+      ),
+      newId: randomUUID,
+      now: () => new Date().toISOString(),
+    }),
   });
 
   createWindow();
@@ -96,6 +125,10 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   shuttingDown = true;
   void sessions.closeAll(3000).finally(() => app.quit());
+});
+
+app.on("will-quit", () => {
+  profileRepository?.close();
 });
 
 app.on("window-all-closed", () => {

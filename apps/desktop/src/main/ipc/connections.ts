@@ -11,6 +11,7 @@ import {
   type DatabaseAdapter,
   DatabaseError,
   type DatabaseSession,
+  ProfileError,
   type SessionRegistry,
 } from "@bpg/database-core";
 import {
@@ -41,7 +42,7 @@ function toConfig(params: ConnectionParams): ConnectionConfig {
 }
 
 /** Explicit field list: a new internal field can never leak to the renderer. */
-function toSessionInfo(session: DatabaseSession): SessionInfo {
+export function toSessionInfo(session: DatabaseSession): SessionInfo {
   const { host, port, database, user, sslMode, serverVersion, openedAt } =
     session.info;
   return {
@@ -57,11 +58,11 @@ function toSessionInfo(session: DatabaseSession): SessionInfo {
 }
 
 /** Driver-level failures keep their code; the message is already fixed and safe. */
-async function translate<T>(operation: () => Promise<T>): Promise<T> {
+export async function translate<T>(operation: () => Promise<T>): Promise<T> {
   try {
     return await operation();
   } catch (error: unknown) {
-    if (error instanceof DatabaseError) {
+    if (error instanceof DatabaseError || error instanceof ProfileError) {
       throw new IpcFailure(error.code, error.message);
     }
     throw error;

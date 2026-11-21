@@ -15,11 +15,13 @@
     "format": "biome format --write .",
     "test": "vitest run",
     "check": "pnpm typecheck && pnpm test && pnpm lint",
-    "dist:win": "pnpm --filter @bpg/desktop dist:win"
+    "dist:win": "pnpm --filter @bpg/desktop dist:win",
+    "test:e2e": "pnpm build && vitest run --config vitest.e2e.config.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.0.0",
     "@types/node": "^22.0.0",
+    "playwright": "^1.65.1",
     "typescript": "^5.9.0",
     "vitest": "^4.0.0"
   }

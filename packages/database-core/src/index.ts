@@ -15,6 +15,18 @@ export {
   DatabaseError,
   type DatabaseErrorCode,
 } from "./errors";
+export {
+  type PasswordInstruction,
+  PROFILE_ERROR_CODES,
+  ProfileError,
+  type ProfileErrorCode,
+  type ProfileFields,
+  type ProfileRepository,
+  ProfileService,
+  type ProfileServiceDeps,
+  type SecretStore,
+  type StoredProfile,
+} from "./profiles";
 export { type CloseAllResult, SessionRegistry } from "./session-registry";
 
 export type SslMode = "disable" | "verify-full";

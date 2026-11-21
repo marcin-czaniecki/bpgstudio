@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   CloseSessionRequestSchema,
   ConnectionParamsSchema,
+  ConnectionProfileSchema,
+  SaveProfileRequestSchema,
   SessionInfoSchema,
 } from "./database";
 
@@ -107,5 +109,33 @@ describe("CloseSessionRequestSchema", () => {
         extra: 1,
       }).success,
     ).toBe(false);
+  });
+});
+
+describe("profile schemas", () => {
+  const profile = {
+    name: " Local ",
+    host: "localhost",
+    port: 5432,
+    database: "app",
+    user: "app",
+    sslMode: "disable",
+    password: { action: "keep" },
+  };
+
+  it("trims the name and rejects unknown keys and bare passwords", () => {
+    expect(SaveProfileRequestSchema.parse(profile).name).toBe("Local");
+    expect(
+      SaveProfileRequestSchema.safeParse({ ...profile, extra: 1 }).success,
+    ).toBe(false);
+    expect(
+      SaveProfileRequestSchema.safeParse({ ...profile, password: "x" }).success,
+    ).toBe(false);
+  });
+
+  it("the response DTO has no password field", () => {
+    expect(Object.keys(ConnectionProfileSchema.shape)).not.toContain(
+      "password",
+    );
   });
 });
