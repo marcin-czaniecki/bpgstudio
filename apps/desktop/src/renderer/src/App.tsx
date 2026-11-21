@@ -1,5 +1,6 @@
 import type { AppInfo } from "@bpg/contracts";
 import { useEffect, useState } from "react";
+import { ConnectionPanel } from "./ConnectionPanel";
 
 export function App() {
   const [info, setInfo] = useState<AppInfo | null>(null);
@@ -41,6 +42,7 @@ export function App() {
         )}
         {error && <p role="alert">IPC error: {error}</p>}
       </section>
+      <ConnectionPanel />
     </main>
   );
 }

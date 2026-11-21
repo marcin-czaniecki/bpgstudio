@@ -7,6 +7,23 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    # Disposable PostgreSQL for integration tests (throwaway credentials).
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: bpg
+          POSTGRES_PASSWORD: bpg_test_only
+          POSTGRES_DB: bpg_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bpg -d bpg_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      BPG_PG_TEST_URL: postgres://bpg:bpg_test_only@localhost:5432/bpg_test
     steps:
       - uses: actions/checkout@v4
       # No "version" on purpose: action-setup@v4 reads the exact pnpm

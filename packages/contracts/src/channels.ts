@@ -8,6 +8,10 @@
  */
 export const IPC_CHANNELS = {
   appGetInfo: "app:get-info",
+  dbTestConnection: "db:test-connection",
+  dbOpenSession: "db:open-session",
+  dbCloseSession: "db:close-session",
+  dbListSessions: "db:list-sessions",
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

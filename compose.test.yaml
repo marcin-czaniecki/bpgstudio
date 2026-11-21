@@ -1,0 +1,22 @@
+# Disposable PostgreSQL for integration tests ONLY. The credentials below are
+# throwaway test values; the port is bound to loopback.
+#
+#   docker compose -f compose.test.yaml up -d --wait
+#   BPG_PG_TEST_URL=postgres://bpg:bpg_test_only@127.0.0.1:55432/bpg_test pnpm test
+#   docker compose -f compose.test.yaml down -v
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: bpg
+      POSTGRES_PASSWORD: bpg_test_only
+      POSTGRES_DB: bpg_test
+    ports:
+      - "127.0.0.1:55432:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bpg -d bpg_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
