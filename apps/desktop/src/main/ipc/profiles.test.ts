@@ -73,6 +73,9 @@ function setup() {
       throw new Error("not used");
     },
     cancel: async () => false,
+    listSchemas: async () => ({ items: [], truncated: false }),
+    listRelations: async () => ({ items: [], truncated: false }),
+    describeRelation: async () => [],
     onClosed: () => undefined,
     close: async () => undefined,
   };

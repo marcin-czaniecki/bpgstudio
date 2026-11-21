@@ -1,25 +1,37 @@
 import { randomUUID } from "node:crypto";
 import {
+  type ColumnInfo,
   type ConnectionConfig,
   type ConnectionTestOutcome,
   type DatabaseAdapter,
   type DatabaseError,
   type DatabaseSession,
+  type Limited,
   QueryError,
   type QueryOptions,
   type QueryOutcome,
+  type RelationEntry,
   type SessionDetails,
 } from "@bpg/database-core";
 import { Client, type ClientConfig } from "pg";
 import Cursor from "pg-cursor";
 import { databaseError, mapPgError } from "./error-mapping";
+import {
+  describeRelation,
+  listRelations,
+  listSchemas,
+  type MetadataQuery,
+} from "./metadata";
 import { mapQueryError } from "./query-error";
 import { toCell } from "./serialize";
 
 /** Minimal client surface the adapter needs; lets tests inject a fake. */
 export interface PgClientLike {
   connect(): Promise<void>;
-  query(text: string): Promise<Array<Record<string, unknown>>>;
+  query(
+    text: string,
+    values?: readonly unknown[],
+  ): Promise<Array<Record<string, unknown>>>;
   end(): Promise<void>;
   onError(listener: () => void): void;
   onEnd(listener: () => void): void;
@@ -109,8 +121,8 @@ const defaultClientFactory: PgClientFactory = (config) => {
     connect: async () => {
       await client.connect();
     },
-    query: async (text) => {
-      const result = await client.query(text);
+    query: async (text, values) => {
+      const result = await client.query(text, values ? [...values] : undefined);
       return result.rows as Array<Record<string, unknown>>;
     },
     end: () => client.end(),
@@ -223,6 +235,7 @@ class PostgresSession implements DatabaseSession {
     pid: number,
     stillCurrent: () => boolean,
   ) => Promise<boolean>;
+  readonly #metadataQuery: MetadataQuery;
   #runId = 0;
   #closing = false;
   #finished = false;
@@ -237,7 +250,9 @@ class PostgresSession implements DatabaseSession {
       pid: number,
       stillCurrent: () => boolean,
     ) => Promise<boolean>,
+    metadataQuery: MetadataQuery,
   ) {
+    this.#metadataQuery = metadataQuery;
     this.#client = client;
     this.info = info;
     this.#cancelBackend = cancelBackend;
@@ -332,6 +347,26 @@ class PostgresSession implements DatabaseSession {
     }
   }
 
+  #metadata<T>(read: (query: MetadataQuery) => Promise<T>): Promise<T> {
+    if (this.#finished || this.#closing) return Promise.reject(lost());
+    return read(this.#metadataQuery);
+  }
+
+  listSchemas(): Promise<Limited<string>> {
+    return this.#metadata(listSchemas);
+  }
+
+  listRelations(schema: string): Promise<Limited<RelationEntry>> {
+    return this.#metadata((q) => listRelations(q, schema));
+  }
+
+  describeRelation(
+    schema: string,
+    name: string,
+  ): Promise<readonly ColumnInfo[]> {
+    return this.#metadata((q) => describeRelation(q, schema, name));
+  }
+
   async close(): Promise<void> {
     if (this.#closing || this.#finished) return;
     this.#closing = true;
@@ -365,6 +400,39 @@ async function cancelBackend(
     const rows = await client.query(`SELECT pg_cancel_backend(${pid}) AS ok`);
     return rows[0]?.ok === true;
   } finally {
+    await quietEnd(client);
+  }
+}
+
+const METADATA_TIMEOUT_MS = 15_000;
+
+/** One catalog query on its own short-lived connection (ADR-0005). */
+async function runMetadataQuery(
+  createClient: PgClientFactory,
+  config: ConnectionConfig,
+  sql: string,
+  values?: readonly unknown[],
+): Promise<Array<Record<string, unknown>>> {
+  const client = createClient(config);
+  client.onError(() => {});
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      (async () => {
+        await client.connect();
+        return await client.query(sql, values);
+      })(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("metadata query timed out")),
+          METADATA_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } catch (error: unknown) {
+    throw mapPgError(error);
+  } finally {
+    clearTimeout(timer);
     await quietEnd(client);
   }
 }
@@ -406,6 +474,7 @@ export function createPostgresAdapter(
           // The config (with the password) stays in this closure, in main only.
           (pid, stillCurrent) =>
             cancelBackend(createClient, config, pid, stillCurrent),
+          (sql, values) => runMetadataQuery(createClient, config, sql, values),
         );
       } catch (error: unknown) {
         await quietEnd(client);

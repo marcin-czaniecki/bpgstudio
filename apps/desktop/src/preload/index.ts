@@ -1,10 +1,13 @@
 import type {
   AppInfo,
   BpgBridge,
+  ColumnDto,
   ConnectionProfile,
   ConnectionTestResult,
   QueryResult,
+  RelationList,
   SchemaHints,
+  SchemaList,
   SessionInfo,
 } from "@bpg/contracts";
 import { IPC_CHANNELS } from "@bpg/contracts/channels";
@@ -43,6 +46,16 @@ const bpg: BpgBridge = {
       invoke<boolean>(IPC_CHANNELS.dbCancelQuery, { sessionId }),
     getSchemaHints: (sessionId) =>
       invoke<SchemaHints>(IPC_CHANNELS.dbGetSchemaHints, { sessionId }),
+    listSchemas: (sessionId) =>
+      invoke<SchemaList>(IPC_CHANNELS.dbListSchemas, { sessionId }),
+    listRelations: (sessionId, schema) =>
+      invoke<RelationList>(IPC_CHANNELS.dbListRelations, { sessionId, schema }),
+    describeRelation: (sessionId, schema, name) =>
+      invoke<ColumnDto[]>(IPC_CHANNELS.dbDescribeRelation, {
+        sessionId,
+        schema,
+        name,
+      }),
     testProfile: (profileId, password) =>
       invoke<ConnectionTestResult>(IPC_CHANNELS.dbTestProfile, {
         profileId,

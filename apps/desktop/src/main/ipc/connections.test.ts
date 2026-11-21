@@ -46,6 +46,9 @@ function fakeSession(id: string): DatabaseSession & { closed: number } {
       throw new Error("not used");
     },
     cancel: async () => false,
+    listSchemas: async () => ({ items: [], truncated: false }),
+    listRelations: async () => ({ items: [], truncated: false }),
+    describeRelation: async () => [],
     onClosed: (l: (r: DatabaseError | null) => void) => {
       listener = l;
     },

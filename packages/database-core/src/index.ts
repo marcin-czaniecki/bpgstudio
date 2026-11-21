@@ -69,6 +69,32 @@ export interface SessionDetails {
   readonly openedAt: string;
 }
 
+export type RelationKind =
+  | "table"
+  | "partitioned-table"
+  | "view"
+  | "materialized-view"
+  | "foreign-table";
+
+export interface RelationEntry {
+  readonly name: string;
+  readonly kind: RelationKind;
+}
+
+export interface ColumnInfo {
+  readonly name: string;
+  /** Type as PostgreSQL formats it, e.g. "character varying(50)". */
+  readonly type: string;
+  readonly notNull: boolean;
+  readonly isPrimaryKey: boolean;
+}
+
+export interface Limited<T> {
+  readonly items: readonly T[];
+  /** True when more existed than the server-side limit allowed. */
+  readonly truncated: boolean;
+}
+
 export interface DatabaseSession {
   readonly id: string;
   readonly info: SessionDetails;
@@ -86,6 +112,16 @@ export interface DatabaseSession {
   execute(sql: string, options: QueryOptions): Promise<QueryOutcome>;
   /** Cancels the running statement, if any. Resolves true when a cancel was sent. */
   cancel(): Promise<boolean>;
+  /**
+   * Catalog reads for the object explorer. They use their own short-lived
+   * connection, so they work while a user statement is running (ADR-0005).
+   */
+  listSchemas(): Promise<Limited<string>>;
+  listRelations(schema: string): Promise<Limited<RelationEntry>>;
+  describeRelation(
+    schema: string,
+    name: string,
+  ): Promise<readonly ColumnInfo[]>;
 }
 
 export interface DatabaseAdapter {

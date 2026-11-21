@@ -1,10 +1,15 @@
 import {
   CancelQueryRequestSchema,
+  type ColumnDto,
+  DescribeRelationRequestSchema,
   ExecuteQueryRequestSchema,
   IPC_CHANNELS,
+  ListRelationsRequestSchema,
   type QueryResult,
+  type RelationList,
   type SchemaHints,
   SchemaHintsRequestSchema,
+  type SchemaList,
 } from "@bpg/contracts";
 import type { DatabaseSession, SessionRegistry } from "@bpg/database-core";
 import { loadSchemaHints } from "@bpg/database-postgres";
@@ -88,6 +93,56 @@ export function registerQueryHandlers(
             })),
             truncated: hints.truncated,
           };
+        }),
+    }),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.dbListSchemas,
+    createTrustedHandler({
+      policy,
+      schema: SchemaHintsRequestSchema,
+      handle: ({ sessionId }) =>
+        translate(async (): Promise<SchemaList> => {
+          const out = await requireSession(sessionId).listSchemas();
+          return { schemas: [...out.items], truncated: out.truncated };
+        }),
+    }),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.dbListRelations,
+    createTrustedHandler({
+      policy,
+      schema: ListRelationsRequestSchema,
+      handle: ({ sessionId, schema }) =>
+        translate(async (): Promise<RelationList> => {
+          const out = await requireSession(sessionId).listRelations(schema);
+          return {
+            relations: out.items.map((r) => ({ name: r.name, kind: r.kind })),
+            truncated: out.truncated,
+          };
+        }),
+    }),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.dbDescribeRelation,
+    createTrustedHandler({
+      policy,
+      schema: DescribeRelationRequestSchema,
+      handle: ({ sessionId, schema, name }) =>
+        translate(async (): Promise<ColumnDto[]> => {
+          const columns = await requireSession(sessionId).describeRelation(
+            schema,
+            name,
+          );
+          return columns.map((c) => ({
+            name: c.name,
+            type: c.type,
+            notNull: c.notNull,
+            isPrimaryKey: c.isPrimaryKey,
+          }));
         }),
     }),
   );

@@ -102,4 +102,35 @@ describe.skipIf(!raw)("desktop app: SQL editor (e2e)", () => {
     await page.getByRole("button", { name: /^Run/ }).click();
     await page.getByRole("columnheader", { name: "two" }).waitFor();
   });
+
+  it("browses schemas, tables and columns in the object explorer", async () => {
+    // One statement per run; start clean in case an earlier run aborted.
+    await setSql("drop schema if exists e2e_explorer cascade");
+    await page.keyboard.press("Control+Enter");
+    await page.getByText(/DROP · /).waitFor();
+    await setSql("create schema e2e_explorer");
+    await page.keyboard.press("Control+Enter");
+    await page.getByText(/CREATE · /).waitFor();
+    await setSql(
+      "create table e2e_explorer.pets (id int primary key, name text not null)",
+    );
+    await page.keyboard.press("Control+Enter");
+    await page.getByText(/CREATE · /).waitFor();
+
+    await page.getByRole("button", { name: "Refresh", exact: true }).click();
+    await page.getByRole("button", { name: /e2e_explorer/ }).click();
+    await page.getByRole("button", { name: /pets/ }).first().click();
+    await page.getByRole("button", { name: /name\s+text not null/ }).waitFor();
+    await page.getByRole("button", { name: /id\s+integer not null/ }).waitFor();
+
+    await setSql("");
+    await page.getByRole("button", { name: "Insert pets" }).click();
+    expect(await page.locator(".cm-content").textContent()).toContain(
+      "e2e_explorer.pets",
+    );
+
+    await setSql("drop schema e2e_explorer cascade");
+    await page.keyboard.press("Control+Enter");
+    await page.getByText(/DROP · /).waitFor();
+  });
 });

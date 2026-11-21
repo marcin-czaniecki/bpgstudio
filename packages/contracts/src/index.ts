@@ -1,12 +1,15 @@
 import { z } from "zod";
 import type {
+  ColumnDto,
   ConnectionParamsInput,
   ConnectionProfile,
   ConnectionTestResult,
   ExecuteQueryRequestInput,
   QueryResult,
+  RelationList,
   SaveProfileRequestInput,
   SchemaHints,
+  SchemaList,
   SessionInfo,
 } from "./database";
 
@@ -45,6 +48,13 @@ export interface BpgBridge {
     /** Resolves true when a cancel was sent to a running statement. */
     cancelQuery(sessionId: string): Promise<boolean>;
     getSchemaHints(sessionId: string): Promise<SchemaHints>;
+    listSchemas(sessionId: string): Promise<SchemaList>;
+    listRelations(sessionId: string, schema: string): Promise<RelationList>;
+    describeRelation(
+      sessionId: string,
+      schema: string,
+      name: string,
+    ): Promise<ColumnDto[]>;
     testProfile(
       profileId: string,
       password?: string,

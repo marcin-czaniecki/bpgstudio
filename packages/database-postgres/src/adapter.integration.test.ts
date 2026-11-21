@@ -243,6 +243,45 @@ describe.skipIf(!url)(
       });
     });
 
+    it("explorer metadata works while a query is running", async () => {
+      await withSession(async (s) => {
+        await s.execute("CREATE SCHEMA bpg_explorer_probe", opts);
+        try {
+          await s.execute(
+            "CREATE TABLE bpg_explorer_probe.items (id int PRIMARY KEY, label varchar(20) NOT NULL)",
+            opts,
+          );
+          await s.execute(
+            "CREATE VIEW bpg_explorer_probe.items_v AS SELECT id FROM bpg_explorer_probe.items",
+            opts,
+          );
+          const running = s.execute("SELECT pg_sleep(2)", opts);
+          const schemas = await s.listSchemas();
+          expect(schemas.items).toContain("bpg_explorer_probe");
+          expect(schemas.items).not.toContain("pg_catalog");
+          const relations = await s.listRelations("bpg_explorer_probe");
+          expect(relations.items).toEqual([
+            { name: "items", kind: "table" },
+            { name: "items_v", kind: "view" },
+          ]);
+          expect(
+            await s.describeRelation("bpg_explorer_probe", "items"),
+          ).toEqual([
+            { name: "id", type: "integer", notNull: true, isPrimaryKey: true },
+            {
+              name: "label",
+              type: "character varying(20)",
+              notNull: true,
+              isPrimaryKey: false,
+            },
+          ]);
+          await running;
+        } finally {
+          await s.execute("DROP SCHEMA bpg_explorer_probe CASCADE", opts);
+        }
+      });
+    }, 30000);
+
     it("serializes common PostgreSQL types", async () => {
       await withSession(async (s) => {
         const out = await s.execute(

@@ -11,6 +11,8 @@ export interface SqlEditorHandle {
   focusAt(position: number): void;
   /** Table/column names for autocompletion, keyed "table" or "schema.table". */
   setSchema(schema: SqlSchema): void;
+  /** Inserts text at the cursor (replacing the selection) and refocuses. */
+  insertText(text: string): void;
 }
 
 export type SqlSchema = Record<string, string[]>;
@@ -93,6 +95,12 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
   }, []);
 
   useImperativeHandle(ref, () => ({
+    insertText: (text) => {
+      const editor = view.current;
+      if (!editor) return;
+      editor.dispatch(editor.state.replaceSelection(text));
+      editor.focus();
+    },
     setSchema: (schema) => {
       view.current?.dispatch({
         effects: language.current.reconfigure(sqlLanguage(schema)),

@@ -5,6 +5,7 @@ import {
   type SessionInfo,
 } from "@bpg/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ObjectExplorer } from "./ObjectExplorer";
 import { SqlEditor, type SqlEditorHandle, type SqlSchema } from "./SqlEditor";
 
 type Failure = {
@@ -144,6 +145,13 @@ export function QueryPanel({ sessions }: { sessions: SessionInfo[] }) {
             Cancel
           </button>
         </div>
+      )}
+      {sessionId && (
+        <ObjectExplorer
+          key={sessionId}
+          sessionId={sessionId}
+          onInsert={(text) => editor.current?.insertText(text)}
+        />
       )}
       <SqlEditor ref={editor} onRun={() => void run()} />
 
