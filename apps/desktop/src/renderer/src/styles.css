@@ -15,8 +15,8 @@ body {
   margin: 0;
 }
 .shell {
-  max-width: 760px;
-  margin: 15vh auto 0;
+  max-width: 1100px;
+  margin: 6vh auto 6vh;
   padding: 0 24px;
 }
 .eyebrow {
@@ -70,4 +70,54 @@ h1 {
 
 .sessions {
   padding-left: 1.25rem;
+}
+
+.query-toolbar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: end;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+.query-toolbar label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+.result-scroll {
+  max-height: 24rem;
+  overflow: auto;
+  margin-top: 0.75rem;
+  border: 1px solid #374151;
+  border-radius: 8px;
+}
+.results {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.85rem;
+}
+.results th,
+.results td {
+  padding: 0.35rem 0.6rem;
+  border-bottom: 1px solid #374151;
+  text-align: left;
+  white-space: pre;
+  max-width: 28rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.results th {
+  position: sticky;
+  top: 0;
+  background: #1f2937;
+}
+.null-cell {
+  color: #6b7280;
+}
+.query-error {
+  color: #fca5a5;
+}
+.query-error p {
+  color: inherit;
+  margin: 0.25rem 0;
 }

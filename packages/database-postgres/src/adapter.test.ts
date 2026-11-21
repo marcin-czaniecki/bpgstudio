@@ -1,7 +1,8 @@
 import type { ConnectionConfig } from "@bpg/database-core";
-import { DatabaseError } from "@bpg/database-core";
+import { DatabaseError, QueryError } from "@bpg/database-core";
 import { describe, expect, it, vi } from "vitest";
 import {
+  type CursorResult,
   createPgClientConfig,
   createPostgresAdapter,
   type PgClientLike,
@@ -23,6 +24,26 @@ class FakeClient implements PgClientLike {
   endCalls = 0;
   errorListeners: Array<() => void> = [];
   endListeners: Array<() => void> = [];
+  cursorCalls: Array<{ text: string; maxRows: number }> = [];
+  /** Settles the in-flight runCursor; set while a statement is "running". */
+  finishCursor: ((outcome: CursorResult | unknown) => void) | undefined;
+  cursorImpl:
+    | ((text: string, maxRows: number) => Promise<CursorResult>)
+    | null = null;
+
+  processId(): number | null {
+    return 4242;
+  }
+  async runCursor(text: string, maxRows: number): Promise<CursorResult> {
+    this.cursorCalls.push({ text, maxRows });
+    if (this.cursorImpl) return this.cursorImpl(text, maxRows);
+    return {
+      fields: [{ name: "one", dataTypeID: 23 }],
+      rows: [[1]],
+      command: "SELECT",
+      rowCount: 1,
+    };
+  }
 
   constructor(
     private readonly options: {
@@ -36,7 +57,7 @@ class FakeClient implements PgClientLike {
     if (this.options.connectError !== undefined)
       throw this.options.connectError;
   }
-  async query(): Promise<Array<Record<string, unknown>>> {
+  async query(_text?: string): Promise<Array<Record<string, unknown>>> {
     return [
       {
         server_version:
@@ -230,5 +251,267 @@ describe("openSession", () => {
       code: "DATABASE_NOT_FOUND",
     });
     expect(client.endCalls).toBe(1);
+  });
+});
+
+describe("session.execute", () => {
+  async function open(client: FakeClient, cancelClient?: () => FakeClient) {
+    let first = true;
+    const adapter = createPostgresAdapter(() => {
+      if (first) {
+        first = false;
+        return client;
+      }
+      return cancelClient ? cancelClient() : new FakeClient();
+    });
+    return adapter.openSession(config);
+  }
+
+  it("returns serialized rows, columns and the server command", async () => {
+    const client = new FakeClient();
+    client.cursorImpl = async () => ({
+      fields: [
+        { name: "id", dataTypeID: 20 },
+        { name: "at", dataTypeID: 1184 },
+        { name: "blob", dataTypeID: 17 },
+        { name: "doc", dataTypeID: 3802 },
+        { name: "nothing", dataTypeID: 25 },
+      ],
+      rows: [
+        [
+          "9007199254740993",
+          new Date("2026-01-02T03:04:05Z"),
+          Buffer.from([1, 255]),
+          { a: [1] },
+          null,
+        ],
+      ],
+      command: "SELECT",
+      rowCount: 1,
+    });
+    const session = await open(client);
+    const out = await session.execute("select 1", {
+      maxRows: 10,
+      timeoutMs: 5000,
+    });
+    expect(out.columns.map((c) => c.name)).toEqual([
+      "id",
+      "at",
+      "blob",
+      "doc",
+      "nothing",
+    ]);
+    expect(out.rows).toEqual([
+      [
+        "9007199254740993",
+        "2026-01-02T03:04:05.000Z",
+        "\\x01ff",
+        '{"a":[1]}',
+        null,
+      ],
+    ]);
+    expect(out.truncated).toBe(false);
+    expect(out.command).toBe("SELECT");
+  });
+
+  it("reads maxRows + 1 and reports truncation without returning the extra row", async () => {
+    const client = new FakeClient();
+    client.cursorImpl = async (_t, maxRows) => ({
+      fields: [{ name: "n", dataTypeID: 23 }],
+      rows: Array.from({ length: maxRows }, (_, i) => [i]),
+      command: "SELECT",
+      rowCount: null,
+    });
+    const session = await open(client);
+    const out = await session.execute("select n", {
+      maxRows: 3,
+      timeoutMs: 5000,
+    });
+    expect(client.cursorCalls[0]?.maxRows).toBe(3);
+    // The fake returned exactly maxRows rows (no extra): not truncated.
+    expect(out.rows).toHaveLength(3);
+    expect(out.truncated).toBe(false);
+
+    client.cursorImpl = async (_t, maxRows) => ({
+      fields: [{ name: "n", dataTypeID: 23 }],
+      rows: Array.from({ length: maxRows + 1 }, (_, i) => [i]),
+      command: "SELECT",
+      rowCount: null,
+    });
+    const cut = await session.execute("select n", {
+      maxRows: 3,
+      timeoutMs: 5000,
+    });
+    expect(cut.rows).toHaveLength(3);
+    expect(cut.truncated).toBe(true);
+  });
+
+  it("uses the server row count for statements that return no rows", async () => {
+    const client = new FakeClient();
+    client.cursorImpl = async () => ({
+      fields: [],
+      rows: [],
+      command: "UPDATE",
+      rowCount: 7,
+    });
+    const out = await (await open(client)).execute("update t set a = 1", {
+      maxRows: 10,
+      timeoutMs: 5000,
+    });
+    expect(out).toMatchObject({
+      command: "UPDATE",
+      rowCount: 7,
+      columns: [],
+      rows: [],
+    });
+  });
+
+  it("refuses a second concurrent statement with QUERY_IN_PROGRESS", async () => {
+    const client = new FakeClient();
+    let release: (() => void) | undefined;
+    client.cursorImpl = () =>
+      new Promise((resolve) => {
+        release = () =>
+          resolve({ fields: [], rows: [], command: "SELECT", rowCount: 0 });
+      });
+    const session = await open(client);
+    const first = session.execute("select pg_sleep(1)", {
+      maxRows: 1,
+      timeoutMs: 5000,
+    });
+    await expect(
+      session.execute("select 2", { maxRows: 1, timeoutMs: 5000 }),
+    ).rejects.toMatchObject({
+      code: "QUERY_IN_PROGRESS",
+    });
+    release?.();
+    await first;
+    // The guard is released afterwards.
+    client.cursorImpl = null;
+    await expect(
+      session.execute("select 3", { maxRows: 1, timeoutMs: 5000 }),
+    ).resolves.toBeDefined();
+  });
+
+  it("maps a server SQL error and keeps position, detail and hint", async () => {
+    const client = new FakeClient();
+    client.cursorImpl = async () => {
+      throw Object.assign(new Error('syntax error at or near "selec"'), {
+        severity: "ERROR",
+        code: "42601",
+        position: "1",
+        detail: "d",
+        hint: "h",
+      });
+    };
+    const session = await open(client);
+    const error = await session
+      .execute("selec 1", { maxRows: 1, timeoutMs: 5000 })
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(QueryError);
+    expect(error).toMatchObject({
+      code: "QUERY_FAILED",
+      message: 'syntax error at or near "selec"',
+      details: { sqlState: "42601", position: 1, detail: "d", hint: "h" },
+    });
+  });
+
+  it("maps a connection-class failure to a fixed safe message, not QUERY_FAILED", async () => {
+    const client = new FakeClient();
+    client.cursorImpl = async () => {
+      throw Object.assign(
+        new Error(
+          "terminating connection due to administrator command at host x",
+        ),
+        {
+          severity: "FATAL",
+          code: "57P01",
+        },
+      );
+    };
+    const error = await (await open(client))
+      .execute("select 1", { maxRows: 1, timeoutMs: 5000 })
+      .catch((e: unknown) => e);
+    expect(error).toMatchObject({
+      code: "CONNECTION_LOST",
+      message: "Connection lost",
+    });
+  });
+
+  it("cancel() sends pg_cancel_backend for this session's pid from a second connection", async () => {
+    const client = new FakeClient();
+    const queries: string[] = [];
+    const canceller = new FakeClient();
+    canceller.query = async (text: string) => {
+      queries.push(text);
+      return [{ ok: true }];
+    };
+    let rejectRun: ((e: unknown) => void) | undefined;
+    client.cursorImpl = () =>
+      new Promise((_, reject) => {
+        rejectRun = reject;
+      });
+    const session = await open(client, () => canceller);
+    const running = session.execute("select pg_sleep(60)", {
+      maxRows: 1,
+      timeoutMs: 600000,
+    });
+    expect(await session.cancel()).toBe(true);
+    expect(queries).toEqual(["SELECT pg_cancel_backend(4242) AS ok"]);
+    expect(canceller.endCalls).toBe(1);
+    rejectRun?.(
+      Object.assign(new Error("canceling statement due to user request"), {
+        severity: "ERROR",
+        code: "57014",
+      }),
+    );
+    await expect(running).rejects.toMatchObject({ code: "QUERY_CANCELLED" });
+  });
+
+  it("cancel() does nothing when no statement is running", async () => {
+    const session = await open(new FakeClient());
+    expect(await session.cancel()).toBe(false);
+  });
+
+  it("a timeout cancels the statement and reports QUERY_TIMEOUT", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = new FakeClient();
+      const canceller = new FakeClient();
+      canceller.query = async () => [{ ok: true }];
+      let rejectRun: ((e: unknown) => void) | undefined;
+      client.cursorImpl = () =>
+        new Promise((_, reject) => {
+          rejectRun = reject;
+        });
+      const session = await open(client, () => canceller);
+      const running = session.execute("select pg_sleep(60)", {
+        maxRows: 1,
+        timeoutMs: 1000,
+      });
+      const assertion = expect(running).rejects.toMatchObject({
+        code: "QUERY_TIMEOUT",
+      });
+      await vi.advanceTimersByTimeAsync(1000);
+      rejectRun?.(
+        Object.assign(new Error("canceling statement due to user request"), {
+          severity: "ERROR",
+          code: "57014",
+        }),
+      );
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects execute on a session that was closed", async () => {
+    const session = await open(new FakeClient());
+    await session.close();
+    await expect(
+      session.execute("select 1", { maxRows: 1, timeoutMs: 5000 }),
+    ).rejects.toMatchObject({
+      code: "CONNECTION_LOST",
+    });
   });
 });

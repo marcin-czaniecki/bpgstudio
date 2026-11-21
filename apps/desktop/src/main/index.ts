@@ -11,6 +11,7 @@ import { createPostgresAdapter } from "@bpg/database-postgres";
 import { app, BrowserWindow, ipcMain, safeStorage } from "electron";
 import { registerConnectionHandlers } from "./ipc/connections";
 import { registerProfileHandlers } from "./ipc/profiles";
+import { registerQueryHandlers } from "./ipc/query";
 import {
   createRendererUrlMatcher,
   createTrustedHandler,
@@ -103,6 +104,8 @@ app.whenReady().then(() => {
     adapter,
     registry: sessions,
   });
+
+  registerQueryHandlers(ipcMain, { policy: senderPolicy, registry: sessions });
 
   const userData = app.getPath("userData");
   profileRepository = new SqliteProfileRepository(

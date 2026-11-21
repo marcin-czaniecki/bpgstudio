@@ -3,10 +3,11 @@ import type {
   BpgBridge,
   ConnectionProfile,
   ConnectionTestResult,
+  QueryResult,
   SessionInfo,
 } from "@bpg/contracts";
 import { IPC_CHANNELS } from "@bpg/contracts/channels";
-import type { IpcResult } from "@bpg/contracts/ipc";
+import { encodeIpcError, type IpcResult } from "@bpg/contracts/ipc";
 import { contextBridge, ipcRenderer } from "electron";
 
 /**
@@ -19,9 +20,8 @@ import { contextBridge, ipcRenderer } from "electron";
 async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
   const result = (await ipcRenderer.invoke(channel, ...args)) as IpcResult<T>;
   if (!result.ok) {
-    throw Object.assign(new Error(result.error.message), {
-      code: result.error.code,
-    });
+    // Only name/message survive contextBridge, so the error travels in the message.
+    throw new Error(encodeIpcError(result.error));
   }
   return result.data;
 }
@@ -36,6 +36,10 @@ const bpg: BpgBridge = {
     closeSession: (sessionId) =>
       invoke<void>(IPC_CHANNELS.dbCloseSession, { sessionId }),
     listSessions: () => invoke<SessionInfo[]>(IPC_CHANNELS.dbListSessions),
+    executeQuery: (request) =>
+      invoke<QueryResult>(IPC_CHANNELS.dbExecuteQuery, request),
+    cancelQuery: (sessionId) =>
+      invoke<boolean>(IPC_CHANNELS.dbCancelQuery, { sessionId }),
     testProfile: (profileId, password) =>
       invoke<ConnectionTestResult>(IPC_CHANNELS.dbTestProfile, {
         profileId,

@@ -69,6 +69,10 @@ function setup() {
       serverVersion: "17.2",
       openedAt: "2026-11-21T03:00:00.000Z",
     },
+    execute: async () => {
+      throw new Error("not used");
+    },
+    cancel: async () => false,
     onClosed: () => undefined,
     close: async () => undefined,
   };

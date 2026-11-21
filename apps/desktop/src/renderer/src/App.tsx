@@ -1,10 +1,12 @@
-import type { AppInfo } from "@bpg/contracts";
+import type { AppInfo, SessionInfo } from "@bpg/contracts";
 import { useEffect, useState } from "react";
 import { ConnectionPanel } from "./ConnectionPanel";
+import { QueryPanel } from "./QueryPanel";
 
 export function App() {
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<SessionInfo[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -42,7 +44,8 @@ export function App() {
         )}
         {error && <p role="alert">IPC error: {error}</p>}
       </section>
-      <ConnectionPanel />
+      <ConnectionPanel onSessionsChange={setSessions} />
+      <QueryPanel sessions={sessions} />
     </main>
   );
 }

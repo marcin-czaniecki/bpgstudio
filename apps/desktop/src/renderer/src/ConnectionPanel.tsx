@@ -4,6 +4,7 @@ import type {
   SaveProfileRequestInput,
   SessionInfo,
 } from "@bpg/contracts";
+import { decodeIpcError } from "@bpg/contracts";
 import {
   type FormEvent,
   useCallback,
@@ -19,13 +20,9 @@ type Status =
   | { kind: "error"; text: string };
 
 function describeError(cause: unknown): string {
-  if (cause instanceof Error) {
-    const code = (cause as Error & { code?: unknown }).code;
-    return typeof code === "string"
-      ? `${code}: ${cause.message}`
-      : cause.message;
-  }
-  return "Unknown error";
+  const ipc = decodeIpcError(cause);
+  if (ipc) return `${ipc.code}: ${ipc.message}`;
+  return cause instanceof Error ? cause.message : "Unknown error";
 }
 
 /**
@@ -72,7 +69,11 @@ function readProfile(
   };
 }
 
-export function ConnectionPanel() {
+export function ConnectionPanel({
+  onSessionsChange,
+}: {
+  onSessionsChange?: (sessions: SessionInfo[]) => void;
+}) {
   const formRef = useRef<HTMLFormElement>(null);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [profiles, setProfiles] = useState<ConnectionProfile[]>([]);
@@ -82,12 +83,14 @@ export function ConnectionPanel() {
 
   const refresh = useCallback(async () => {
     try {
-      setSessions(await window.bpg.db.listSessions());
+      const list = await window.bpg.db.listSessions();
+      setSessions(list);
+      onSessionsChange?.(list);
       setProfiles(await window.bpg.profiles.list());
     } catch (cause: unknown) {
       setStatus({ kind: "error", text: describeError(cause) });
     }
-  }, []);
+  }, [onSessionsChange]);
 
   useEffect(() => {
     void refresh();

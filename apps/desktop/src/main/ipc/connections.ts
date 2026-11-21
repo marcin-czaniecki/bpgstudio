@@ -12,6 +12,7 @@ import {
   DatabaseError,
   type DatabaseSession,
   ProfileError,
+  QueryError,
   type SessionRegistry,
 } from "@bpg/database-core";
 import {
@@ -62,6 +63,9 @@ export async function translate<T>(operation: () => Promise<T>): Promise<T> {
   try {
     return await operation();
   } catch (error: unknown) {
+    if (error instanceof QueryError) {
+      throw new IpcFailure(error.code, error.message, error.details);
+    }
     if (error instanceof DatabaseError || error instanceof ProfileError) {
       throw new IpcFailure(error.code, error.message);
     }

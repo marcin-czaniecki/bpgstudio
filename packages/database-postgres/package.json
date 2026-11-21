@@ -8,9 +8,11 @@
   },
   "dependencies": {
     "@bpg/database-core": "workspace:*",
-    "pg": "^8.23.1"
+    "pg": "^8.23.1",
+    "pg-cursor": "^2.22.1"
   },
   "devDependencies": {
-    "@types/pg": "^8.23.1"
+    "@types/pg": "^8.23.1",
+    "@types/pg-cursor": "^2.7.2"
   }
 }

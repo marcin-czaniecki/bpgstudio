@@ -1,3 +1,5 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { _electron, type ElectronApplication, type Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -27,12 +29,18 @@ function parse(value: string) {
 
 describe.skipIf(!raw)("desktop app: connection flow (e2e)", () => {
   const pg = parse(raw ?? "postgres://x:y@localhost/z");
+  const userData = mkdtempSync(join(tmpdir(), "bpg-e2e-"));
   let app: ElectronApplication;
   let page: Page;
 
   beforeAll(async () => {
     app = await _electron.launch({
-      args: [join(process.cwd(), "apps/desktop")],
+      // Isolated profile dir: never the developer's data, and no single-instance
+      // lock clash with a running dev app.
+      args: [
+        join(process.cwd(), "apps/desktop"),
+        `--user-data-dir=${userData}`,
+      ],
       env: { ...process.env, ELECTRON_RENDERER_URL: "" },
     });
     page = await app.firstWindow();
@@ -41,6 +49,7 @@ describe.skipIf(!raw)("desktop app: connection flow (e2e)", () => {
 
   afterAll(async () => {
     await app?.close();
+    rmSync(userData, { recursive: true, force: true });
   });
 
   async function fill(password: string) {

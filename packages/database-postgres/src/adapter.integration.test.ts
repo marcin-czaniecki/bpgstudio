@@ -140,3 +140,169 @@ describe.skipIf(!url)("PostgreSQL adapter (integration)", () => {
     await expect(session.close()).resolves.toBeUndefined();
   });
 });
+
+describe.skipIf(!url)(
+  "PostgreSQL adapter: query execution (integration)",
+  () => {
+    const base = parse(url ?? "postgres://x:y@localhost/z");
+    const adapter = createPostgresAdapter();
+    const opts = { maxRows: 1000, timeoutMs: 20000 };
+
+    async function withSession<T>(
+      fn: (s: Awaited<ReturnType<typeof adapter.openSession>>) => Promise<T>,
+    ): Promise<T> {
+      const session = await adapter.openSession(base);
+      try {
+        return await fn(session);
+      } finally {
+        await session.close();
+      }
+    }
+
+    it("truncates at maxRows without loading the whole result", async () => {
+      await withSession(async (s) => {
+        const out = await s.execute(
+          "SELECT g FROM generate_series(1, 5000) g",
+          {
+            ...opts,
+            maxRows: 100,
+          },
+        );
+        expect(out.rows).toHaveLength(100);
+        expect(out.truncated).toBe(true);
+        expect(out.rows[0]).toEqual([1]);
+        // The session is still usable after an early cursor close.
+        const next = await s.execute("SELECT 1 AS one", opts);
+        expect(next.rows).toEqual([[1]]);
+      });
+    });
+
+    it("serializes common PostgreSQL types", async () => {
+      await withSession(async (s) => {
+        const out = await s.execute(
+          `SELECT 9007199254740993::int8 AS big, 1.50::numeric AS num,
+                '2026-01-02 03:04:05+00'::timestamptz AS ts, decode('01ff', 'hex') AS b,
+                '{"a":[1,null]}'::jsonb AS j, ARRAY[1,2,3] AS arr, NULL AS nothing,
+                true AS flag, 'é'::text AS txt`,
+          opts,
+        );
+        expect(out.columns.map((c) => c.name)).toEqual([
+          "big",
+          "num",
+          "ts",
+          "b",
+          "j",
+          "arr",
+          "nothing",
+          "flag",
+          "txt",
+        ]);
+        expect(out.rows[0]).toEqual([
+          "9007199254740993",
+          "1.50",
+          "2026-01-02T03:04:05.000Z",
+          "\u005cx01ff",
+          '{"a":[1,null]}',
+          "[1,2,3]",
+          null,
+          true,
+          "é",
+        ]);
+      });
+    });
+
+    it("keeps duplicate column names (array row mode)", async () => {
+      await withSession(async (s) => {
+        const out = await s.execute("SELECT 1 AS a, 2 AS a", opts);
+        expect(out.columns.map((c) => c.name)).toEqual(["a", "a"]);
+        expect(out.rows).toEqual([[1, 2]]);
+      });
+    });
+
+    it("reports the command and affected rows for statements without a result set", async () => {
+      await withSession(async (s) => {
+        await s.execute("CREATE TEMP TABLE bpg_tmp (a int)", opts);
+        const ins = await s.execute(
+          "INSERT INTO bpg_tmp VALUES (1), (2)",
+          opts,
+        );
+        expect(ins).toMatchObject({ command: "INSERT", rowCount: 2, rows: [] });
+      });
+    });
+
+    it("returns a SQL error with SQLSTATE and position, and stays usable", async () => {
+      await withSession(async (s) => {
+        const error = await s.execute("SELEC 1", opts).catch((e: unknown) => e);
+        expect(error).toMatchObject({
+          code: "QUERY_FAILED",
+          details: { sqlState: "42601", position: 1 },
+        });
+        expect((await s.execute("SELECT 2", opts)).rows).toEqual([[2]]);
+      });
+    });
+
+    it("rejects multiple statements in one run", async () => {
+      await withSession(async (s) => {
+        await expect(
+          s.execute("SELECT 1; SELECT 2", opts),
+        ).rejects.toMatchObject({
+          code: "QUERY_FAILED",
+        });
+      });
+    });
+
+    it("cancels a long query quickly and stays usable", async () => {
+      await withSession(async (s) => {
+        const started = Date.now();
+        const running = s.execute("SELECT pg_sleep(30)", {
+          ...opts,
+          timeoutMs: 120000,
+        });
+        await new Promise((r) => setTimeout(r, 300));
+        const assertion = expect(running).rejects.toMatchObject({
+          code: "QUERY_CANCELLED",
+        });
+        expect(await s.cancel()).toBe(true);
+        await assertion;
+        expect(Date.now() - started).toBeLessThan(5000);
+        expect((await s.execute("SELECT 3", opts)).rows).toEqual([[3]]);
+      });
+    });
+
+    it("times out a long query as QUERY_TIMEOUT", async () => {
+      await withSession(async (s) => {
+        const started = Date.now();
+        await expect(
+          s.execute("SELECT pg_sleep(30)", { ...opts, timeoutMs: 1000 }),
+        ).rejects.toMatchObject({ code: "QUERY_TIMEOUT" });
+        expect(Date.now() - started).toBeLessThan(6000);
+      });
+    });
+
+    it("a second concurrent statement gets QUERY_IN_PROGRESS", async () => {
+      await withSession(async (s) => {
+        const first = s.execute("SELECT pg_sleep(1)", opts);
+        await expect(s.execute("SELECT 1", opts)).rejects.toMatchObject({
+          code: "QUERY_IN_PROGRESS",
+        });
+        await first;
+      });
+    });
+
+    it("runs a statement longer than the connect timeout (no query_timeout leak)", async () => {
+      const session = await adapter.openSession({
+        ...base,
+        connectTimeoutMs: 1000,
+      });
+      try {
+        const out = await session.execute(
+          "SELECT pg_sleep(1.5), 1 AS one",
+          opts,
+        );
+        expect(out.rows[0]?.[1]).toBe(1);
+      } finally {
+        await session.close();
+      }
+    });
+  },
+);

@@ -69,6 +69,57 @@ export const CloseSessionRequestSchema = z
   .strict();
 export type CloseSessionRequest = z.infer<typeof CloseSessionRequestSchema>;
 
+export const MAX_SQL_CHARS = 1_000_000;
+export const DEFAULT_MAX_ROWS = 1000;
+export const MAX_ROWS_LIMIT = 10_000;
+export const DEFAULT_QUERY_TIMEOUT_MS = 60_000;
+
+/** One statement per request (see M1-003). Limits are enforced here, not in the UI. */
+export const ExecuteQueryRequestSchema = z
+  .object({
+    sessionId: z.uuid(),
+    sql: z
+      .string()
+      .min(1)
+      .max(MAX_SQL_CHARS)
+      .refine((v) => v.trim().length > 0, "SQL is empty")
+      .refine((v) => !v.includes("\u0000"), "NUL is not allowed"),
+    maxRows: z
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_ROWS_LIMIT)
+      .default(DEFAULT_MAX_ROWS),
+    timeoutMs: z
+      .number()
+      .int()
+      .min(1000)
+      .max(600_000)
+      .default(DEFAULT_QUERY_TIMEOUT_MS),
+  })
+  .strict();
+export type ExecuteQueryRequest = z.output<typeof ExecuteQueryRequestSchema>;
+export type ExecuteQueryRequestInput = z.input<
+  typeof ExecuteQueryRequestSchema
+>;
+
+export const CancelQueryRequestSchema = z
+  .object({ sessionId: z.uuid() })
+  .strict();
+export type CancelQueryRequest = z.infer<typeof CancelQueryRequestSchema>;
+
+export const QueryResultSchema = z.object({
+  command: z.string(),
+  rowCount: z.number().int().nullable(),
+  columns: z.array(z.object({ name: z.string(), typeId: z.number().int() })),
+  rows: z.array(
+    z.array(z.union([z.string(), z.number(), z.boolean(), z.null()])),
+  ),
+  truncated: z.boolean(),
+  durationMs: z.number().nonnegative(),
+});
+export type QueryResult = z.infer<typeof QueryResultSchema>;
+
 const ProfileFieldsShape = ConnectionParamsSchema.omit({
   password: true,
 }).shape;

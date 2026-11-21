@@ -42,6 +42,10 @@ function fakeSession(id: string): DatabaseSession & { closed: number } {
       serverVersion: "17.2",
       openedAt: "2026-11-21T03:00:00.000Z",
     },
+    execute: async () => {
+      throw new Error("not used");
+    },
+    cancel: async () => false,
     onClosed: (l: (r: DatabaseError | null) => void) => {
       listener = l;
     },

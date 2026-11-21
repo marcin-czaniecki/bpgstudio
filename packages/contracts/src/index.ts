@@ -3,6 +3,8 @@ import type {
   ConnectionParamsInput,
   ConnectionProfile,
   ConnectionTestResult,
+  ExecuteQueryRequestInput,
+  QueryResult,
   SaveProfileRequestInput,
   SessionInfo,
 } from "./database";
@@ -10,9 +12,12 @@ import type {
 export { IPC_CHANNELS, type IpcChannel } from "./channels";
 export * from "./database";
 export {
+  decodeIpcError,
+  encodeIpcError,
   IPC_ERROR_CODES,
   type IpcError,
   type IpcErrorCode,
+  type IpcErrorDetails,
   type IpcResult,
 } from "./ipc";
 
@@ -35,6 +40,9 @@ export interface BpgBridge {
     openSession(params: ConnectionParamsInput): Promise<SessionInfo>;
     closeSession(sessionId: string): Promise<void>;
     listSessions(): Promise<SessionInfo[]>;
+    executeQuery(request: ExecuteQueryRequestInput): Promise<QueryResult>;
+    /** Resolves true when a cancel was sent to a running statement. */
+    cancelQuery(sessionId: string): Promise<boolean>;
     testProfile(
       profileId: string,
       password?: string,

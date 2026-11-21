@@ -1,4 +1,8 @@
-import type { IpcErrorCode, IpcResult } from "@bpg/contracts/ipc";
+import type {
+  IpcErrorCode,
+  IpcErrorDetails,
+  IpcResult,
+} from "@bpg/contracts/ipc";
 
 /** Structural subset of Electron's IpcMainInvokeEvent, so this stays testable. */
 export interface IpcEventLike {
@@ -65,17 +69,23 @@ export interface InputSchema<I> {
 /** Throw from a handler to return a specific, already-safe error to the renderer. */
 export class IpcFailure extends Error {
   readonly code: IpcErrorCode;
+  readonly details: IpcErrorDetails | undefined;
 
-  constructor(code: IpcErrorCode, message: string) {
+  constructor(code: IpcErrorCode, message: string, details?: IpcErrorDetails) {
     super(message);
     this.name = "IpcFailure";
     this.code = code;
+    this.details = details;
   }
 }
 
-const fail = (code: IpcErrorCode, message: string): IpcResult<never> => ({
+const fail = (
+  code: IpcErrorCode,
+  message: string,
+  details?: IpcErrorDetails,
+): IpcResult<never> => ({
   ok: false,
-  error: { code, message },
+  error: details ? { code, message, details } : { code, message },
 });
 
 /**
@@ -111,7 +121,9 @@ export function createTrustedHandler<I, O>(options: {
     try {
       return { ok: true, data: await handle(parsed.data) };
     } catch (error: unknown) {
-      if (error instanceof IpcFailure) return fail(error.code, error.message);
+      if (error instanceof IpcFailure) {
+        return fail(error.code, error.message, error.details);
+      }
       // Log the error class only: messages may echo connection parameters.
       console.error(
         "IPC handler failed:",

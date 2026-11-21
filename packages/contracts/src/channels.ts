@@ -12,6 +12,8 @@ export const IPC_CHANNELS = {
   dbOpenSession: "db:open-session",
   dbCloseSession: "db:close-session",
   dbListSessions: "db:list-sessions",
+  dbExecuteQuery: "db:execute-query",
+  dbCancelQuery: "db:cancel-query",
   dbTestProfile: "db:test-profile",
   dbOpenProfileSession: "db:open-profile-session",
   profilesList: "profiles:list",
