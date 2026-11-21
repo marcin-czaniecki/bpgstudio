@@ -4,8 +4,8 @@ import {
   type QueryResult,
   type SessionInfo,
 } from "@bpg/contracts";
-import { useEffect, useRef, useState } from "react";
-import { SqlEditor, type SqlEditorHandle } from "./SqlEditor";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { SqlEditor, type SqlEditorHandle, type SqlSchema } from "./SqlEditor";
 
 type Failure = {
   code: string;
@@ -49,17 +49,44 @@ export function QueryPanel({ sessions }: { sessions: SessionInfo[] }) {
     }
   }, [sessions, sessionId]);
 
+  // Autocompletion names. Best effort: failures just leave completion generic.
+  const hintsLoad = useRef<Promise<void>>(Promise.resolve());
+  const refreshHints = useCallback((id: string) => {
+    hintsLoad.current = (async () => {
+      try {
+        const hints = await window.bpg.db.getSchemaHints(id);
+        const schema: SqlSchema = {};
+        for (const t of hints.tables) {
+          schema[`${t.schema}.${t.name}`] = t.columns;
+        }
+        editor.current?.setSchema(schema);
+      } catch {
+        // Ignored on purpose.
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    editor.current?.setSchema({});
+    if (sessionId) refreshHints(sessionId);
+  }, [sessionId, refreshHints]);
+
   async function run() {
     const text = editor.current?.getText() ?? "";
     if (inFlight.current || !sessionId || text.trim() === "") return;
     inFlight.current = true;
-    setState({ kind: "running" });
     try {
+      // A schema lookup shares the session; let it finish before showing
+      // "Running" so Cancel is never offered before the query is sent.
+      await hintsLoad.current;
+      setState({ kind: "running" });
       const result = await window.bpg.db.executeQuery({
         sessionId,
         sql: text,
       });
       setState({ kind: "done", result });
+      if (/^(CREATE|ALTER|DROP)\b/i.test(result.command))
+        refreshHints(sessionId);
     } catch (cause: unknown) {
       const failure = toFailure(cause);
       setState({ kind: "failed", failure });
@@ -73,10 +100,15 @@ export function QueryPanel({ sessions }: { sessions: SessionInfo[] }) {
 
   async function cancel() {
     if (!sessionId) return;
-    try {
-      await window.bpg.db.cancelQuery(sessionId);
-    } catch {
-      // The running query reports its own outcome.
+    // A click right after Run can reach main before the query has started, in
+    // which case there is nothing to cancel yet: retry briefly while it runs.
+    for (let attempt = 0; attempt < 20 && inFlight.current; attempt++) {
+      try {
+        if (await window.bpg.db.cancelQuery(sessionId)) return;
+      } catch {
+        return; // The running query reports its own outcome.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
 

@@ -6,6 +6,7 @@ import type {
   ExecuteQueryRequestInput,
   QueryResult,
   SaveProfileRequestInput,
+  SchemaHints,
   SessionInfo,
 } from "./database";
 
@@ -43,6 +44,7 @@ export interface BpgBridge {
     executeQuery(request: ExecuteQueryRequestInput): Promise<QueryResult>;
     /** Resolves true when a cancel was sent to a running statement. */
     cancelQuery(sessionId: string): Promise<boolean>;
+    getSchemaHints(sessionId: string): Promise<SchemaHints>;
     testProfile(
       profileId: string,
       password?: string,

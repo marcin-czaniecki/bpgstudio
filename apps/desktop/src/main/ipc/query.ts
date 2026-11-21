@@ -3,8 +3,11 @@ import {
   ExecuteQueryRequestSchema,
   IPC_CHANNELS,
   type QueryResult,
+  type SchemaHints,
+  SchemaHintsRequestSchema,
 } from "@bpg/contracts";
 import type { DatabaseSession, SessionRegistry } from "@bpg/database-core";
+import { loadSchemaHints } from "@bpg/database-postgres";
 import { type IpcRegistrar, translate } from "./connections";
 import {
   createTrustedHandler,
@@ -66,6 +69,26 @@ export function registerQueryHandlers(
       schema: CancelQueryRequestSchema,
       handle: ({ sessionId }) =>
         translate(() => requireSession(sessionId).cancel()),
+    }),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.dbGetSchemaHints,
+    createTrustedHandler({
+      policy,
+      schema: SchemaHintsRequestSchema,
+      handle: ({ sessionId }) =>
+        translate(async (): Promise<SchemaHints> => {
+          const hints = await loadSchemaHints(requireSession(sessionId));
+          return {
+            tables: hints.tables.map((t) => ({
+              schema: t.schema,
+              name: t.name,
+              columns: [...t.columns],
+            })),
+            truncated: hints.truncated,
+          };
+        }),
     }),
   );
 }

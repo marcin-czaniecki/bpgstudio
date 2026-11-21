@@ -34,6 +34,38 @@ export interface CursorResult {
   readonly rows: ReadonlyArray<ReadonlyArray<unknown>>;
   readonly command: string;
   readonly rowCount: number | null;
+  /** True when reading stopped early because the result size budget was reached. */
+  readonly byteLimited?: boolean;
+}
+
+interface CursorOutcome {
+  fields?: Array<{ name: string; dataTypeID: number }>;
+  command?: string | null;
+  rowCount?: number | null;
+}
+
+const CURSOR_BATCH_ROWS = 100;
+/** Approximate raw size of one result before it is converted for the renderer. */
+export const MAX_RESULT_BYTES = 32 * 1024 * 1024;
+
+function approximateValueBytes(value: unknown): number {
+  if (value === null || value === undefined) return 0;
+  if (typeof value === "string") return value.length;
+  if (Buffer.isBuffer(value)) return value.length;
+  if (typeof value === "object" && !(value instanceof Date)) {
+    try {
+      return JSON.stringify(value)?.length ?? 0;
+    } catch {
+      return 64;
+    }
+  }
+  return 16;
+}
+
+function approximateRowBytes(row: ReadonlyArray<unknown>): number {
+  let total = 0;
+  for (const value of row) total += approximateValueBytes(value);
+  return total;
 }
 
 export type PgClientFactory = (config: ConnectionConfig) => PgClientLike;
@@ -68,6 +100,8 @@ export function createPgClientConfig(config: ConnectionConfig): ClientConfig {
 }
 
 const CURSOR_CLOSE_TIMEOUT_MS = 2000;
+const CANCEL_ATTEMPTS = 5;
+const CANCEL_RETRY_MS = 300;
 
 const defaultClientFactory: PgClientFactory = (config) => {
   const client = new Client(createPgClientConfig(config));
@@ -95,25 +129,41 @@ const defaultClientFactory: PgClientFactory = (config) => {
         new Cursor<unknown[]>(text, undefined, { rowMode: "array" }),
       );
       try {
-        const { rows, result } = await new Promise<{
-          rows: unknown[][];
-          result: {
-            fields?: Array<{ name: string; dataTypeID: number }>;
-            command?: string | null;
-            rowCount?: number | null;
-          };
-        }>((resolve, reject) => {
-          cursor.read(maxRows + 1, (error, batch, outcome) => {
-            if (error) reject(error);
-            else resolve({ rows: batch, result: outcome });
+        const rows: unknown[][] = [];
+        let bytes = 0;
+        let byteLimited = false;
+        let outcome: CursorOutcome = {};
+        // Read in small batches so a few very wide rows cannot exhaust memory
+        // in the main process before the size budget is checked.
+        while (rows.length <= maxRows) {
+          const want = Math.min(CURSOR_BATCH_ROWS, maxRows + 1 - rows.length);
+          const { batch, result } = await new Promise<{
+            batch: unknown[][];
+            result: CursorOutcome;
+          }>((resolve, reject) => {
+            cursor.read(want, (error, batch, result) => {
+              if (error) reject(error);
+              else resolve({ batch, result });
+            });
           });
-        });
+          outcome = result;
+          for (const row of batch) {
+            rows.push(row);
+            bytes += approximateRowBytes(row);
+          }
+          if (batch.length < want) break;
+          if (bytes > MAX_RESULT_BYTES) {
+            byteLimited = true;
+            break;
+          }
+        }
         return {
-          fields: result.fields ?? [],
+          fields: outcome.fields ?? [],
           rows,
-          command: result.command ?? "",
+          command: outcome.command ?? "",
           rowCount:
-            typeof result.rowCount === "number" ? result.rowCount : null,
+            typeof outcome.rowCount === "number" ? outcome.rowCount : null,
+          byteLimited,
         };
       } finally {
         // If the backend died mid-query, ReadyForQuery never arrives and
@@ -221,7 +271,8 @@ class PostgresSession implements DatabaseSession {
     }, options.timeoutMs);
     try {
       const result = await this.#client.runCursor(sql, options.maxRows);
-      const truncated = result.rows.length > options.maxRows;
+      const truncated =
+        result.rows.length > options.maxRows || result.byteLimited === true;
       const kept = truncated
         ? result.rows.slice(0, options.maxRows)
         : result.rows;
@@ -256,13 +307,28 @@ class PostgresSession implements DatabaseSession {
     // Opening the second connection takes time; the statement may finish (and the
     // next one start) meanwhile, so the cancel is sent only if this run is still active.
     const run = this.#runId;
+    const stillCurrent = () => this.#running && this.#runId === run;
     try {
-      return await this.#cancelBackend(
-        pid,
-        () => this.#running && this.#runId === run,
-      );
+      const sent = await this.#cancelBackend(pid, stillCurrent);
+      // pg_cancel_backend succeeds even when the backend has not received the
+      // statement yet (it does nothing then), so keep repeating in the background
+      // while this run goes on. The caller is not made to wait for the retries.
+      void this.#repeatCancel(pid, stillCurrent);
+      return sent;
     } catch {
       return false;
+    }
+  }
+
+  async #repeatCancel(pid: number, stillCurrent: () => boolean): Promise<void> {
+    try {
+      for (let attempt = 1; attempt < CANCEL_ATTEMPTS; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, CANCEL_RETRY_MS));
+        if (!stillCurrent()) return;
+        await this.#cancelBackend(pid, stillCurrent);
+      }
+    } catch {
+      // Best effort: the first attempt already reported the outcome.
     }
   }
 

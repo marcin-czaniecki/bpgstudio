@@ -4,6 +4,7 @@ import type {
   ConnectionProfile,
   ConnectionTestResult,
   QueryResult,
+  SchemaHints,
   SessionInfo,
 } from "@bpg/contracts";
 import { IPC_CHANNELS } from "@bpg/contracts/channels";
@@ -40,6 +41,8 @@ const bpg: BpgBridge = {
       invoke<QueryResult>(IPC_CHANNELS.dbExecuteQuery, request),
     cancelQuery: (sessionId) =>
       invoke<boolean>(IPC_CHANNELS.dbCancelQuery, { sessionId }),
+    getSchemaHints: (sessionId) =>
+      invoke<SchemaHints>(IPC_CHANNELS.dbGetSchemaHints, { sessionId }),
     testProfile: (profileId, password) =>
       invoke<ConnectionTestResult>(IPC_CHANNELS.dbTestProfile, {
         profileId,

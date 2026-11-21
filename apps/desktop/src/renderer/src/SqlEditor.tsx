@@ -1,5 +1,5 @@
 import { PostgreSQL, sql } from "@codemirror/lang-sql";
-import { EditorState, Prec } from "@codemirror/state";
+import { Compartment, EditorState, Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { basicSetup } from "codemirror";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
@@ -9,6 +9,16 @@ export interface SqlEditorHandle {
   getText(): string;
   /** Moves the cursor to a 1-based character offset (e.g. a SQL error position). */
   focusAt(position: number): void;
+  /** Table/column names for autocompletion, keyed "table" or "schema.table". */
+  setSchema(schema: SqlSchema): void;
+}
+
+export type SqlSchema = Record<string, string[]>;
+
+const DEFAULT_SCHEMA = "public";
+
+function sqlLanguage(schema: SqlSchema) {
+  return sql({ dialect: PostgreSQL, schema, defaultSchema: DEFAULT_SCHEMA });
 }
 
 interface Props {
@@ -49,6 +59,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
   run.current = onRun;
   // Only seeds the document once; later prop changes are ignored on purpose.
   const seed = useRef(initialText);
+  const language = useRef(new Compartment());
 
   useEffect(() => {
     if (!host.current) return;
@@ -58,7 +69,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
         doc: seed.current,
         extensions: [
           basicSetup,
-          sql({ dialect: PostgreSQL }),
+          language.current.of(sqlLanguage({})),
           theme,
           Prec.highest(
             keymap.of([
@@ -82,6 +93,11 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
   }, []);
 
   useImperativeHandle(ref, () => ({
+    setSchema: (schema) => {
+      view.current?.dispatch({
+        effects: language.current.reconfigure(sqlLanguage(schema)),
+      });
+    },
     getText: () => view.current?.state.doc.toString() ?? "",
     focusAt: (position) => {
       const editor = view.current;

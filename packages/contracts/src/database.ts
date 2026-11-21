@@ -108,6 +108,25 @@ export const CancelQueryRequestSchema = z
   .strict();
 export type CancelQueryRequest = z.infer<typeof CancelQueryRequestSchema>;
 
+export const SchemaHintsRequestSchema = z
+  .object({ sessionId: z.uuid() })
+  .strict();
+export type SchemaHintsRequest = z.infer<typeof SchemaHintsRequestSchema>;
+
+/** Names only (no data): feeds editor autocompletion. */
+export const SchemaHintsSchema = z.object({
+  tables: z.array(
+    z.object({
+      schema: z.string(),
+      name: z.string(),
+      columns: z.array(z.string()),
+    }),
+  ),
+  /** True when the catalog had more columns than the hint limit. */
+  truncated: z.boolean(),
+});
+export type SchemaHints = z.infer<typeof SchemaHintsSchema>;
+
 export const QueryResultSchema = z.object({
   command: z.string(),
   rowCount: z.number().int().nullable(),

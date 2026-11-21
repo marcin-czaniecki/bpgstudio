@@ -2,6 +2,7 @@ import type { ConnectionConfig, DatabaseError } from "@bpg/database-core";
 import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createPostgresAdapter } from "./adapter";
+import { loadSchemaHints } from "./schema-hints";
 
 /**
  * Runs against a real, disposable PostgreSQL (see compose.test.yaml). Skipped
@@ -200,6 +201,45 @@ describe.skipIf(!url)(
         // The session is still usable after an early cursor close.
         const next = await s.execute("SELECT 1 AS one", opts);
         expect(next.rows).toEqual([[1]]);
+      });
+    });
+
+    it("stops reading once the result size budget is exceeded", async () => {
+      await withSession(async (s) => {
+        // ~10 MB per row: the 32 MB budget is crossed long before 1000 rows.
+        const out = await s.execute(
+          "SELECT repeat('x', 10000000) AS big FROM generate_series(1, 1000)",
+          { maxRows: 1000, timeoutMs: 60000 },
+        );
+        expect(out.truncated).toBe(true);
+        expect(out.rows.length).toBeLessThan(1000);
+        expect(out.rows.length).toBeGreaterThan(0);
+        const next = await s.execute("SELECT 1 AS one", opts);
+        expect(next.rows).toEqual([[1]]);
+      });
+    }, 60000);
+
+    it("loads table and column names for autocompletion", async () => {
+      await withSession(async (s) => {
+        await s.execute("CREATE SCHEMA bpg_hint_probe", opts);
+        try {
+          await s.execute(
+            "CREATE TABLE bpg_hint_probe.items (id int, label text)",
+            opts,
+          );
+          const hints = await loadSchemaHints(s);
+          expect(hints.truncated).toBe(false);
+          expect(
+            hints.tables.find(
+              (t) => t.schema === "bpg_hint_probe" && t.name === "items",
+            )?.columns,
+          ).toEqual(["id", "label"]);
+          expect(hints.tables.some((t) => t.schema === "pg_catalog")).toBe(
+            false,
+          );
+        } finally {
+          await s.execute("DROP SCHEMA bpg_hint_probe CASCADE", opts);
+        }
       });
     });
 

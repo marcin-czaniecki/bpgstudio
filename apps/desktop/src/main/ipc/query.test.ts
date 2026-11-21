@@ -65,9 +65,13 @@ function setup(execute?: DatabaseSession["execute"]) {
 }
 
 describe("query IPC handlers", () => {
-  it("registers exactly the two query channels", () => {
+  it("registers exactly the query channels", () => {
     expect([...setup().handlers.keys()].sort()).toEqual(
-      [IPC_CHANNELS.dbExecuteQuery, IPC_CHANNELS.dbCancelQuery].sort(),
+      [
+        IPC_CHANNELS.dbExecuteQuery,
+        IPC_CHANNELS.dbCancelQuery,
+        IPC_CHANNELS.dbGetSchemaHints,
+      ].sort(),
     );
   });
 
