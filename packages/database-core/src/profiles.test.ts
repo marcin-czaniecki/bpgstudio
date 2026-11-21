@@ -98,11 +98,63 @@ describe("ProfileService", () => {
     ).not.toThrow();
   });
 
-  it("set on an existing profile reuses its reference (no orphaned secret)", () => {
+  it("refuses keep when TLS is weakened from verify-full", () => {
+    const { service } = setup();
+    const p = service.save(
+      undefined,
+      { ...fields, sslMode: "verify-full" },
+      { action: "set", value: "pw" },
+    );
+    expect(() =>
+      service.save(p.id, { ...fields, sslMode: "disable" }, { action: "keep" }),
+    ).toThrowError(expect.objectContaining({ code: "PASSWORD_REQUIRED" }));
+    const weak = service.save(undefined, fields, { action: "set", value: "x" });
+    expect(() =>
+      service.save(
+        weak.id,
+        { ...fields, sslMode: "verify-full" },
+        { action: "keep" },
+      ),
+    ).not.toThrow();
+  });
+
+  it("a failed row write leaves the old secret intact and no orphan", () => {
+    const { service, secrets, rows } = setup();
+    const p = service.save(undefined, fields, { action: "set", value: "old" });
+    const failing = new ProfileService({
+      repository: {
+        list: () => [],
+        get: (id) => rows.get(id) ?? null,
+        upsert: () => {
+          throw new Error("SQLITE_BUSY");
+        },
+        delete: () => undefined,
+      },
+      secrets: {
+        isAvailable: () => true,
+        put: (r, v) => void secrets.set(r, v),
+        get: (r) => secrets.get(r) ?? null,
+        delete: (r) => void secrets.delete(r),
+      },
+      newId: () => "new-ref",
+      now: () => "t",
+    });
+    expect(() =>
+      failing.save(
+        p.id,
+        { ...fields, host: "b" },
+        { action: "set", value: "new" },
+      ),
+    ).toThrow("SQLITE_BUSY");
+    expect(secrets.size).toBe(1);
+    expect(service.resolveConfig(p.id).password).toBe("old");
+  });
+
+  it("set on an existing profile rotates the reference (no orphaned secret)", () => {
     const { service, secrets } = setup();
     const a = service.save(undefined, fields, { action: "set", value: "one" });
     const b = service.save(a.id, fields, { action: "set", value: "two" });
-    expect(b.secretRef).toBe(a.secretRef);
+    expect(b.secretRef).not.toBe(a.secretRef);
     expect(secrets.size).toBe(1);
     expect(service.resolveConfig(a.id).password).toBe("two");
   });

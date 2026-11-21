@@ -7,6 +7,8 @@ export interface Encryptor {
   isEncryptionAvailable(): boolean;
   encryptString(plain: string): Buffer;
   decryptString(encrypted: Buffer): string;
+  /** Linux only. basic_text / unknown mean a publicly known key: not real encryption. */
+  getSelectedStorageBackend?(): string;
 }
 
 /**
@@ -18,10 +20,16 @@ export class SafeStorageSecretStore implements SecretStore {
   constructor(
     private readonly path: string,
     private readonly encryptor: Encryptor,
+    private readonly platform: string = process.platform,
   ) {}
 
   isAvailable(): boolean {
-    return this.encryptor.isEncryptionAvailable();
+    if (!this.encryptor.isEncryptionAvailable()) return false;
+    if (this.platform === "linux") {
+      const backend = this.encryptor.getSelectedStorageBackend?.() ?? "unknown";
+      return backend !== "basic_text" && backend !== "unknown";
+    }
+    return true;
   }
 
   put(ref: string, plaintext: string): void {

@@ -129,6 +129,8 @@ export function ConnectionPanel() {
     if (!form) return;
     void run("Saving…", async () => {
       const saved = await window.bpg.profiles.save(readProfile(form, editing));
+      const field = form.elements.namedItem("password");
+      if (field instanceof HTMLInputElement) field.value = "";
       setEditing(null);
       return `Saved "${saved.name}"${saved.hasSavedPassword ? " (password stored securely)" : ""}`;
     });

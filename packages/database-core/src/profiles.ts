@@ -99,19 +99,26 @@ export class ProfileService {
       existing.secretRef !== null &&
       (existing.host.toLowerCase() !== fields.host.toLowerCase() ||
         existing.port !== fields.port ||
-        existing.user !== fields.user)
+        existing.user !== fields.user ||
+        (existing.sslMode === "verify-full" &&
+          fields.sslMode !== "verify-full"))
     ) {
       throw new ProfileError(
         "PASSWORD_REQUIRED",
-        "Host, port or user changed: enter the password again or remove the saved one",
+        "Host, port, user or TLS mode weakened: enter the password again or remove the saved one",
       );
     }
 
     const previousRef = existing?.secretRef ?? null;
     let secretRef = previousRef;
+    let newRef: string | null = null;
     if (password.action === "set") {
-      secretRef = previousRef ?? newId();
-      secrets.put(secretRef, password.value);
+      // Always a fresh reference: the old secret stays valid for the old row until
+      // the row itself has been updated, so a failed write cannot pair a new
+      // password with the old host.
+      newRef = newId();
+      secrets.put(newRef, password.value);
+      secretRef = newRef;
     } else if (password.action === "clear") {
       secretRef = null;
     }
@@ -124,10 +131,20 @@ export class ProfileService {
       createdAt: existing?.createdAt ?? timestamp,
       updatedAt: timestamp,
     };
-    repository.upsert(profile);
+    try {
+      repository.upsert(profile);
+    } catch (error: unknown) {
+      if (newRef !== null) secrets.delete(newRef);
+      throw error;
+    }
 
-    if (password.action === "clear" && previousRef !== null) {
-      secrets.delete(previousRef);
+    // Best effort: an orphaned ciphertext is harmless, a failed save is not.
+    if (previousRef !== null && previousRef !== secretRef) {
+      try {
+        secrets.delete(previousRef);
+      } catch {
+        // left behind; no row references it
+      }
     }
     return profile;
   }

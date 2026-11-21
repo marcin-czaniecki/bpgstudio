@@ -4,7 +4,7 @@
   "private": true,
   "packageManager": "pnpm@12.21.0",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=26.0.0"
   },
   "scripts": {
     "dev": "pnpm --filter @bpg/desktop dev",
@@ -20,7 +20,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.0.0",
-    "@types/node": "^22.0.0",
+    "@types/node": "^24.0.0",
     "playwright": "^1.65.1",
     "typescript": "^5.9.0",
     "vitest": "^4.0.0"

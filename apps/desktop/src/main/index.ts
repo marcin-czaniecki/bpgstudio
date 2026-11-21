@@ -71,7 +71,19 @@ function createWindow(): void {
   }
 }
 
+// Two instances would race on secrets.json (read-modify-write).
+const gotLock = app.requestSingleInstanceLock();
+if (gotLock) {
+  app.on("second-instance", () => {
+    if (mainWindow?.isMinimized()) mainWindow.restore();
+    mainWindow?.focus();
+  });
+} else {
+  app.quit();
+}
+
 app.whenReady().then(() => {
+  if (!gotLock) return;
   ipcMain.handle(
     IPC_CHANNELS.appGetInfo,
     createTrustedHandler({

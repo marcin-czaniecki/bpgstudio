@@ -17,6 +17,12 @@ interface ProfileRow {
   updated_at: string;
 }
 
+function toSslMode(value: string): "disable" | "verify-full" {
+  if (value === "disable" || value === "verify-full") return value;
+  // Never silently downgrade TLS for a damaged row.
+  throw new Error("Corrupt profile row: unknown TLS mode");
+}
+
 function toProfile(row: ProfileRow): StoredProfile {
   return {
     id: row.id,
@@ -25,7 +31,7 @@ function toProfile(row: ProfileRow): StoredProfile {
     port: row.port,
     database: row.database,
     user: row.user,
-    sslMode: row.ssl_mode === "verify-full" ? "verify-full" : "disable",
+    sslMode: toSslMode(row.ssl_mode),
     connectTimeoutMs: row.connect_timeout_ms,
     secretRef: row.secret_ref,
     createdAt: row.created_at,

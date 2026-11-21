@@ -139,3 +139,43 @@ describe("SafeStorageSecretStore", () => {
     expect(new SafeStorageSecretStore(path, broken).get("ref")).toBeNull();
   });
 });
+
+describe("SafeStorageSecretStore on Linux", () => {
+  const withBackend = (backend: string | undefined): Encryptor => ({
+    ...fakeEncryptor(),
+    ...(backend === undefined
+      ? {}
+      : { getSelectedStorageBackend: () => backend }),
+  });
+  const store = (backend: string | undefined) =>
+    new SafeStorageSecretStore(
+      join(dir, "s.json"),
+      withBackend(backend),
+      "linux",
+    );
+
+  it("treats basic_text and unknown backends as unavailable", () => {
+    for (const backend of ["basic_text", "unknown", undefined]) {
+      expect(store(backend).isAvailable()).toBe(false);
+    }
+  });
+
+  it("accepts a real keyring backend", () => {
+    expect(store("gnome_libsecret").isAvailable()).toBe(true);
+  });
+});
+
+describe("SqliteProfileRepository integrity", () => {
+  it("rejects a row with an unknown TLS mode instead of downgrading", () => {
+    const path = join(dir, "db.sqlite");
+    const repo = new SqliteProfileRepository(path);
+    repo.upsert({ ...profile, sslMode: "disable" });
+    repo.close();
+    const raw = new DatabaseSync(path);
+    raw.exec("UPDATE connection_profiles SET ssl_mode = 'bogus'");
+    raw.close();
+    const again = new SqliteProfileRepository(path);
+    expect(() => again.list()).toThrow(/unknown TLS mode/);
+    again.close();
+  });
+});

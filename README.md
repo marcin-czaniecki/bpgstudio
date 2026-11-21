@@ -7,7 +7,7 @@ Na tym etapie aplikacja wyświetla ekran startowy i sprawdza działanie typowane
 ## Wymagania
 
 - Windows 11 / PowerShell 7 albo obsługiwany system developerski
-- Node.js >= 22.12
+- Node.js >= 26 (aktualny LTS)
 - pnpm 12 (dokładna wersja przypięta w `packageManager` w `package.json`)
 - Git
 
