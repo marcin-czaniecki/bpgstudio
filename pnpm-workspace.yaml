@@ -2,13 +2,13 @@ packages:
   - "apps/*"
   - "packages/*"
 
-# pnpm 10 reads its own settings from here, not from .npmrc.
-prefer-workspace-packages: true
+preferWorkspacePackages: true
+pmOnFail: download
 
-# pnpm switches itself to the exact version in package.json#packageManager.
-managePackageManagerVersions: true
+# Instaluj również najnowsze wersje pakietów
+minimumReleaseAge: 0
 
-# pnpm 10 blocks postinstall scripts by default; these two need them.
-onlyBuiltDependencies:
-  - electron
-  - esbuild
+allowBuilds:
+  electron: true
+  esbuild: true
+  electron-winstaller: false

@@ -8,7 +8,7 @@ Na tym etapie aplikacja wyświetla ekran startowy i sprawdza działanie typowane
 
 - Windows 11 / PowerShell 7 albo obsługiwany system developerski
 - Node.js >= 22.12
-- pnpm 10 (wersję zaleca się przypiąć wraz z pierwszym lockfile)
+- pnpm 12 (dokładna wersja przypięta w `packageManager` w `package.json`)
 - Git
 
 ## Pierwsze uruchomienie
@@ -33,8 +33,8 @@ pnpm lint
 pnpm build
 ```
 
-Dla pnpm 10 jawnie dopuszczone skrypty instalacyjne `electron` i `esbuild`
-znajdziesz w `pnpm-workspace.yaml`. Jeśli instalator ostrzega o innych
+Jawnie dopuszczone skrypty instalacyjne (`electron`, `esbuild`)
+znajdziesz w sekcji `allowBuilds` w `pnpm-workspace.yaml`. Jeśli instalator ostrzega o innych
 zablokowanych skryptach, sprawdź je przed wywołaniem `pnpm approve-builds`.
 
 `pnpm format` może wprowadzić zmiany formatowania. Uruchom je przed pierwszym commitem.
