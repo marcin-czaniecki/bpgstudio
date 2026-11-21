@@ -7,7 +7,7 @@ import type {
   DatabaseSession,
   SessionDetails,
 } from "@bpg/database-core";
-import { Client } from "pg";
+import { Client, type ClientConfig } from "pg";
 import { databaseError, mapPgError } from "./error-mapping";
 
 /** Minimal client surface the adapter needs; lets tests inject a fake. */
@@ -21,20 +21,36 @@ export interface PgClientLike {
 
 export type PgClientFactory = (config: ConnectionConfig) => PgClientLike;
 
-const defaultClientFactory: PgClientFactory = (config) => {
-  const client = new Client({
+/**
+ * pg falls back to PGPASSWORD / PGOPTIONS / pgpass when a value is falsy (an
+ * empty password included), which would let a renderer-chosen host receive the
+ * developer's own secrets. Remove every PG* variable and pass the password as a
+ * function, which makes pg skip env and pgpass entirely.
+ */
+export function scrubPgEnvironment(env: NodeJS.ProcessEnv = process.env): void {
+  for (const key of Object.keys(env)) {
+    if (key.startsWith("PG")) delete env[key];
+  }
+}
+
+export function createPgClientConfig(config: ConnectionConfig): ClientConfig {
+  return {
     host: config.host,
     port: config.port,
     database: config.database,
     user: config.user,
-    password: config.password,
+    password: () => config.password,
     // verify-full: certificate chain AND hostname are verified, no fallback.
     ssl:
       config.sslMode === "verify-full" ? { rejectUnauthorized: true } : false,
     connectionTimeoutMillis: config.connectTimeoutMs,
     query_timeout: config.connectTimeoutMs,
     application_name: "BPG Studio",
-  });
+  };
+}
+
+const defaultClientFactory: PgClientFactory = (config) => {
+  const client = new Client(createPgClientConfig(config));
   return {
     connect: async () => {
       await client.connect();
@@ -124,6 +140,7 @@ const lost = (): DatabaseError => databaseError("CONNECTION_LOST");
 export function createPostgresAdapter(
   createClient: PgClientFactory = defaultClientFactory,
 ): DatabaseAdapter {
+  scrubPgEnvironment();
   return {
     async testConnection(config): Promise<ConnectionTestOutcome> {
       const client = createClient(config);

@@ -53,6 +53,20 @@ describe("ConnectionParamsSchema", () => {
     ).toBe(false);
   });
 
+  it("rejects control characters and unix-socket hosts (startup-parameter injection)", () => {
+    for (const patch of [
+      { user: "app\0replication\0database" },
+      { database: "app\0options\0-c x=1" },
+      { host: "local\nhost" },
+      { host: "/var/run/postgresql" },
+      { host: " /tmp" },
+    ]) {
+      expect(
+        ConnectionParamsSchema.safeParse({ ...valid, ...patch }).success,
+      ).toBe(false);
+    }
+  });
+
   it("rejects non-string and oversized values", () => {
     expect(
       ConnectionParamsSchema.safeParse({ ...valid, password: 123 }).success,

@@ -51,6 +51,10 @@ export function mapPgError(error: unknown): DatabaseError {
   // SQLSTATE (5 chars) first: the server told us exactly what happened.
   if (code === "28P01" || code === "28000") return databaseError("AUTH_FAILED");
   if (code === "3D000") return databaseError("DATABASE_NOT_FOUND");
+  // The server wants a password (SCRAM) and we have none: pg fails client-side.
+  if (/client password must be|password must be a/.test(message)) {
+    return databaseError("AUTH_FAILED");
+  }
   if (code?.startsWith("57P") || code?.startsWith("08")) {
     return databaseError("CONNECTION_LOST");
   }

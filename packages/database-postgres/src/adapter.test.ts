@@ -1,7 +1,12 @@
 import type { ConnectionConfig } from "@bpg/database-core";
 import { DatabaseError } from "@bpg/database-core";
 import { describe, expect, it, vi } from "vitest";
-import { createPostgresAdapter, type PgClientLike } from "./adapter";
+import {
+  createPgClientConfig,
+  createPostgresAdapter,
+  type PgClientLike,
+  scrubPgEnvironment,
+} from "./adapter";
 import { mapPgError } from "./error-mapping";
 
 const config: ConnectionConfig = {
@@ -62,6 +67,12 @@ describe("mapPgError", () => {
     [{ code: "28P01" }, "AUTH_FAILED"],
     [{ code: "28000" }, "AUTH_FAILED"],
     [{ code: "3D000" }, "DATABASE_NOT_FOUND"],
+    [
+      new Error(
+        "SASL: SCRAM-SERVER-FIRST-MESSAGE: client password must be a non-empty string",
+      ),
+      "AUTH_FAILED",
+    ],
     [{ code: "57P01" }, "CONNECTION_LOST"],
     [{ code: "08006" }, "CONNECTION_LOST"],
     [{ code: "ECONNREFUSED" }, "HOST_UNREACHABLE"],
@@ -92,6 +103,31 @@ describe("mapPgError", () => {
   it("passes a DatabaseError through unchanged", () => {
     const error = new DatabaseError("TIMEOUT", "Connection timed out");
     expect(mapPgError(error)).toBe(error);
+  });
+});
+
+describe("credential isolation", () => {
+  it("passes the password as a function so pg never reads PGPASSWORD/pgpass", () => {
+    const options = createPgClientConfig({ ...config, password: "" });
+    expect(typeof options.password).toBe("function");
+    expect((options.password as () => string)()).toBe("");
+  });
+
+  it("removes every PG* variable from the environment", () => {
+    const env: NodeJS.ProcessEnv = {
+      PGPASSWORD: "dev-secret",
+      PGOPTIONS: "-c x=1",
+      PGPASSFILE: "/home/dev/.pgpass",
+      PATH: "/usr/bin",
+    };
+    scrubPgEnvironment(env);
+    expect(env).toEqual({ PATH: "/usr/bin" });
+  });
+
+  it("scrubs the real environment when an adapter is created", () => {
+    process.env.PGPASSWORD = "dev-secret";
+    createPostgresAdapter(() => new FakeClient());
+    expect(process.env.PGPASSWORD).toBeUndefined();
   });
 });
 

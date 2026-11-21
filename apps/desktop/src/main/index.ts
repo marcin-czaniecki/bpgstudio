@@ -21,10 +21,13 @@ const sessions = new SessionRegistry<DatabaseSession>({
 
 const rendererIndex = join(__dirname, "../renderer/index.html");
 
+// A packaged app must never load (or trust) a URL from the environment.
+const devUrl = app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL;
+
 const senderPolicy: SenderPolicy = {
   expectedSender: () => mainWindow?.webContents ?? null,
   isAllowedUrl: createRendererUrlMatcher({
-    devUrl: process.env.ELECTRON_RENDERER_URL,
+    devUrl,
     rendererFileUrl: pathToFileURL(rendererIndex).href,
   }),
 };
@@ -48,7 +51,10 @@ function createWindow(): void {
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   mainWindow.webContents.on("will-navigate", (event) => event.preventDefault());
 
-  const devUrl = process.env.ELECTRON_RENDERER_URL;
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
+
   if (devUrl) {
     void mainWindow.loadURL(devUrl);
   } else {

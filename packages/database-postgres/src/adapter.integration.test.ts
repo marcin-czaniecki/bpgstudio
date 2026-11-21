@@ -78,6 +78,14 @@ describe.skipIf(!url)("PostgreSQL adapter (integration)", () => {
     );
   });
 
+  it("does not fall back to PGPASSWORD when the password is empty", async () => {
+    process.env.PGPASSWORD = base.password;
+    const fresh = createPostgresAdapter(); // scrubs PG* from the environment
+    await expect(
+      fresh.testConnection({ ...base, password: "" }),
+    ).rejects.toMatchObject({ code: "AUTH_FAILED" });
+  });
+
   it("maps a missing database to DATABASE_NOT_FOUND", async () => {
     await expect(
       adapter.testConnection({ ...base, database: "no_such_db_bpg" }),

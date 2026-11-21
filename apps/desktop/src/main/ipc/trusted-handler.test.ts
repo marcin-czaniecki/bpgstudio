@@ -95,6 +95,25 @@ describe("createTrustedHandler", () => {
     expect(handle).not.toHaveBeenCalled();
   });
 
+  it("fails closed (FORBIDDEN, no raw error) when the sender check throws", async () => {
+    const handle = vi.fn(() => "never");
+    const run = createTrustedHandler({
+      policy: {
+        ...policy,
+        expectedSender: () => {
+          throw new Error("Object has been destroyed");
+        },
+      },
+      schema: textSchema,
+      handle,
+    });
+    await expect(run(goodEvent, { text: "x" })).resolves.toEqual({
+      ok: false,
+      error: { code: "FORBIDDEN", message: "IPC sender not authorized" },
+    });
+    expect(handle).not.toHaveBeenCalled();
+  });
+
   it("rejects when no window exists yet", async () => {
     const run = createTrustedHandler({
       policy: { ...policy, expectedSender: () => null },
@@ -181,6 +200,7 @@ describe("createRendererUrlMatcher", () => {
     expect(packaged("file:///app/out/renderer/index.html")).toBe(true);
     expect(packaged("file:///app/out/renderer/index.html#x")).toBe(true);
     expect(packaged("file:///etc/passwd")).toBe(false);
+    expect(packaged("file://evil/app/out/renderer/index.html")).toBe(false);
     expect(packaged("http://localhost:5173/")).toBe(false);
     expect(packaged("not a url")).toBe(false);
   });

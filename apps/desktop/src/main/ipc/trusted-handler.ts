@@ -50,7 +50,9 @@ export function createRendererUrlMatcher(options: {
     }
     if (devOrigin !== null) return parsed.origin === devOrigin;
     return (
-      parsed.protocol === "file:" && parsed.pathname === fileTarget.pathname
+      parsed.protocol === "file:" &&
+      parsed.host === fileTarget.host &&
+      parsed.pathname === fileTarget.pathname
     );
   };
 }
@@ -89,7 +91,13 @@ export function createTrustedHandler<I, O>(options: {
   const { policy, schema, handle } = options;
 
   return async (event, ...args) => {
-    if (!isTrustedSender(event, policy)) {
+    let trusted = false;
+    try {
+      trusted = isTrustedSender(event, policy);
+    } catch {
+      // e.g. a destroyed webContents: fail closed with a generic error.
+    }
+    if (!trusted) {
       return fail("FORBIDDEN", "IPC sender not authorized");
     }
     if (args.length > 1) {
