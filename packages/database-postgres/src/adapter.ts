@@ -6,6 +6,7 @@ import {
   type DatabaseAdapter,
   type DatabaseError,
   type DatabaseSession,
+  type IntrospectOptions,
   type Limited,
   QueryError,
   type QueryOptions,
@@ -13,9 +14,11 @@ import {
   type RelationEntry,
   type SessionDetails,
 } from "@bpg/database-core";
+import type { SchemaSnapshot } from "@bpg/schema-core";
 import { Client, type ClientConfig } from "pg";
 import Cursor from "pg-cursor";
 import { databaseError, mapPgError } from "./error-mapping";
+import { introspect } from "./introspect";
 import {
   describeRelation,
   listRelations,
@@ -235,7 +238,7 @@ class PostgresSession implements DatabaseSession {
     pid: number,
     stillCurrent: () => boolean,
   ) => Promise<boolean>;
-  readonly #metadataQuery: MetadataQuery;
+  readonly #runMetadata: MetadataRunner;
   #runId = 0;
   #closing = false;
   #finished = false;
@@ -250,9 +253,9 @@ class PostgresSession implements DatabaseSession {
       pid: number,
       stillCurrent: () => boolean,
     ) => Promise<boolean>,
-    metadataQuery: MetadataQuery,
+    runMetadata: MetadataRunner,
   ) {
-    this.#metadataQuery = metadataQuery;
+    this.#runMetadata = runMetadata;
     this.#client = client;
     this.info = info;
     this.#cancelBackend = cancelBackend;
@@ -347,9 +350,24 @@ class PostgresSession implements DatabaseSession {
     }
   }
 
-  #metadata<T>(read: (query: MetadataQuery) => Promise<T>): Promise<T> {
+  #metadata<T>(
+    read: (query: MetadataQuery) => Promise<T>,
+    timeoutMs?: number,
+  ): Promise<T> {
     if (this.#finished || this.#closing) return Promise.reject(lost());
-    return read(this.#metadataQuery);
+    return this.#runMetadata(read, timeoutMs);
+  }
+
+  introspect(options?: IntrospectOptions): Promise<SchemaSnapshot> {
+    return this.#metadata(async (query) => {
+      // One consistent view of the catalog for all introspection queries.
+      await query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+      try {
+        return await introspect(query, this.info.serverVersion, options);
+      } finally {
+        await query("ROLLBACK").catch(() => undefined);
+      }
+    }, INTROSPECT_TIMEOUT_MS);
   }
 
   listSchemas(): Promise<Limited<string>> {
@@ -405,14 +423,20 @@ async function cancelBackend(
 }
 
 const METADATA_TIMEOUT_MS = 15_000;
+const INTROSPECT_TIMEOUT_MS = 60_000;
 
-/** One catalog query on its own short-lived connection (ADR-0005). */
-async function runMetadataQuery(
+type MetadataRunner = <T>(
+  read: (query: MetadataQuery) => Promise<T>,
+  timeoutMs?: number,
+) => Promise<T>;
+
+/** Runs catalog reads on one short-lived connection of their own (ADR-0005). */
+async function runMetadata<T>(
   createClient: PgClientFactory,
   config: ConnectionConfig,
-  sql: string,
-  values?: readonly unknown[],
-): Promise<Array<Record<string, unknown>>> {
+  read: (query: MetadataQuery) => Promise<T>,
+  timeoutMs = METADATA_TIMEOUT_MS,
+): Promise<T> {
   const client = createClient(config);
   client.onError(() => {});
   let timer: NodeJS.Timeout | undefined;
@@ -420,12 +444,12 @@ async function runMetadataQuery(
     return await Promise.race([
       (async () => {
         await client.connect();
-        return await client.query(sql, values);
+        return await read((sql, values) => client.query(sql, values));
       })(),
       new Promise<never>((_, reject) => {
         timer = setTimeout(
           () => reject(new Error("metadata query timed out")),
-          METADATA_TIMEOUT_MS,
+          timeoutMs,
         );
       }),
     ]);
@@ -474,7 +498,8 @@ export function createPostgresAdapter(
           // The config (with the password) stays in this closure, in main only.
           (pid, stillCurrent) =>
             cancelBackend(createClient, config, pid, stillCurrent),
-          (sql, values) => runMetadataQuery(createClient, config, sql, values),
+          (read, timeoutMs) =>
+            runMetadata(createClient, config, read, timeoutMs),
         );
       } catch (error: unknown) {
         await quietEnd(client);

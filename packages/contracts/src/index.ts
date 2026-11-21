@@ -1,3 +1,4 @@
+import type { SchemaSnapshot } from "@bpg/schema-core";
 import { z } from "zod";
 import type {
   ColumnDto,
@@ -5,6 +6,7 @@ import type {
   ConnectionProfile,
   ConnectionTestResult,
   ExecuteQueryRequestInput,
+  IntrospectSchemaRequestInput,
   QueryResult,
   RelationList,
   SaveProfileRequestInput,
@@ -24,6 +26,7 @@ export {
   type IpcErrorDetails,
   type IpcResult,
 } from "./ipc";
+export type { SchemaSnapshot };
 
 /** For channels that take no argument: anything but `undefined` is rejected. */
 export const NoPayloadSchema = z.undefined();
@@ -48,6 +51,10 @@ export interface BpgBridge {
     /** Resolves true when a cancel was sent to a running statement. */
     cancelQuery(sessionId: string): Promise<boolean>;
     getSchemaHints(sessionId: string): Promise<SchemaHints>;
+    introspectSchema(
+      sessionId: string,
+      options?: Omit<IntrospectSchemaRequestInput, "sessionId">,
+    ): Promise<SchemaSnapshot>;
     listSchemas(sessionId: string): Promise<SchemaList>;
     listRelations(sessionId: string, schema: string): Promise<RelationList>;
     describeRelation(

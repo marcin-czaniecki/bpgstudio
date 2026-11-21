@@ -76,6 +76,9 @@ function setup() {
     listSchemas: async () => ({ items: [], truncated: false }),
     listRelations: async () => ({ items: [], truncated: false }),
     describeRelation: async () => [],
+    introspect: async () => {
+      throw new Error("not used");
+    },
     onClosed: () => undefined,
     close: async () => undefined,
   };

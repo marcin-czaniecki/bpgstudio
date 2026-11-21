@@ -282,6 +282,78 @@ describe.skipIf(!url)(
       });
     }, 30000);
 
+    it("introspects a schema into a deterministic canonical snapshot", async () => {
+      await withSession(async (s) => {
+        await s.execute("CREATE SCHEMA bpg_snap_probe", opts);
+        try {
+          await s.execute(
+            "CREATE TABLE bpg_snap_probe.parent (id int GENERATED ALWAYS AS IDENTITY PRIMARY KEY, code text NOT NULL UNIQUE)",
+            opts,
+          );
+          await s.execute(
+            `CREATE TABLE bpg_snap_probe.child (
+               id int PRIMARY KEY,
+               parent_id int NOT NULL REFERENCES bpg_snap_probe.parent (id) ON DELETE CASCADE,
+               qty int DEFAULT 1 CONSTRAINT qty_positive CHECK (qty > 0),
+               total int GENERATED ALWAYS AS (qty * 2) STORED
+             )`,
+            opts,
+          );
+          await s.execute(
+            "CREATE INDEX child_parent_idx ON bpg_snap_probe.child (parent_id)",
+            opts,
+          );
+          const scope = { includeSchemas: ["bpg_snap_probe"] };
+          const first = await s.introspect(scope);
+          const second = await s.introspect(scope);
+          expect(second.fingerprint).toBe(first.fingerprint);
+          expect(first.schemas.map((x) => x.name)).toEqual(["bpg_snap_probe"]);
+
+          const [child, parent] = first.schemas[0]?.tables ?? [];
+          expect(child?.name).toBe("child");
+          expect(parent?.primaryKey?.columns).toEqual(["id"]);
+          expect(parent?.columns[0]).toMatchObject({
+            name: "id",
+            identity: "always",
+            notNull: true,
+          });
+          expect(parent?.uniqueConstraints.map((u) => u.columns)).toEqual([
+            ["code"],
+          ]);
+          // Constraint-backed indexes are modeled by the constraint, not listed.
+          expect(parent?.indexes).toEqual([]);
+          expect(child?.foreignKeys).toMatchObject([
+            {
+              columns: ["parent_id"],
+              referencedSchema: "bpg_snap_probe",
+              referencedTable: "parent",
+              referencedColumns: ["id"],
+              onDelete: "cascade",
+              onUpdate: "no-action",
+            },
+          ]);
+          expect(child?.checks).toMatchObject([{ name: "qty_positive" }]);
+          expect(child?.indexes.map((i) => i.name)).toEqual([
+            "child_parent_idx",
+          ]);
+          const qty = child?.columns.find((c) => c.name === "qty");
+          expect(qty?.default).toBe("1");
+          const total = child?.columns.find((c) => c.name === "total");
+          expect(total).toMatchObject({ default: null });
+          expect(total?.generated).toContain("qty");
+
+          await s.execute(
+            "ALTER TABLE bpg_snap_probe.child ADD COLUMN note text",
+            opts,
+          );
+          const changed = await s.introspect(scope);
+          expect(changed.fingerprint).not.toBe(first.fingerprint);
+        } finally {
+          await s.execute("DROP SCHEMA bpg_snap_probe CASCADE", opts);
+        }
+      });
+    }, 30000);
+
     it("serializes common PostgreSQL types", async () => {
       await withSession(async (s) => {
         const out = await s.execute(

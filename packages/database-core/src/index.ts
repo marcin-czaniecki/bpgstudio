@@ -1,3 +1,4 @@
+import type { SchemaSnapshot } from "@bpg/schema-core";
 /**
  * Minimal engine-neutral contracts. No Electron, React, Zod or driver imports.
  * Add capabilities when a real second DB exists.
@@ -69,6 +70,12 @@ export interface SessionDetails {
   readonly openedAt: string;
 }
 
+export interface IntrospectOptions {
+  /** Only these schemas; null/undefined = every non-system schema. */
+  readonly includeSchemas?: readonly string[] | null;
+  readonly excludeSchemas?: readonly string[];
+}
+
 export type RelationKind =
   | "table"
   | "partitioned-table"
@@ -122,6 +129,8 @@ export interface DatabaseSession {
     schema: string,
     name: string,
   ): Promise<readonly ColumnInfo[]>;
+  /** Canonical schema snapshot (tables, columns, constraints, indexes) in one consistent read. */
+  introspect(options?: IntrospectOptions): Promise<SchemaSnapshot>;
 }
 
 export interface DatabaseAdapter {

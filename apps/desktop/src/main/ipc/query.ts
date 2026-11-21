@@ -3,6 +3,7 @@ import {
   type ColumnDto,
   DescribeRelationRequestSchema,
   ExecuteQueryRequestSchema,
+  IntrospectSchemaRequestSchema,
   IPC_CHANNELS,
   ListRelationsRequestSchema,
   type QueryResult,
@@ -144,6 +145,21 @@ export function registerQueryHandlers(
             isPrimaryKey: c.isPrimaryKey,
           }));
         }),
+    }),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.dbIntrospectSchema,
+    createTrustedHandler({
+      policy,
+      schema: IntrospectSchemaRequestSchema,
+      handle: ({ sessionId, includeSchemas, excludeSchemas }) =>
+        translate(() =>
+          requireSession(sessionId).introspect({
+            includeSchemas: includeSchemas ?? null,
+            excludeSchemas: excludeSchemas ?? [],
+          }),
+        ),
     }),
   );
 }

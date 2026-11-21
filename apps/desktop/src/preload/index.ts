@@ -8,6 +8,7 @@ import type {
   RelationList,
   SchemaHints,
   SchemaList,
+  SchemaSnapshot,
   SessionInfo,
 } from "@bpg/contracts";
 import { IPC_CHANNELS } from "@bpg/contracts/channels";
@@ -46,6 +47,11 @@ const bpg: BpgBridge = {
       invoke<boolean>(IPC_CHANNELS.dbCancelQuery, { sessionId }),
     getSchemaHints: (sessionId) =>
       invoke<SchemaHints>(IPC_CHANNELS.dbGetSchemaHints, { sessionId }),
+    introspectSchema: (sessionId, options) =>
+      invoke<SchemaSnapshot>(IPC_CHANNELS.dbIntrospectSchema, {
+        sessionId,
+        ...options,
+      }),
     listSchemas: (sessionId) =>
       invoke<SchemaList>(IPC_CHANNELS.dbListSchemas, { sessionId }),
     listRelations: (sessionId, schema) =>

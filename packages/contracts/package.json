@@ -9,6 +9,7 @@
     "./ipc": "./src/ipc.ts"
   },
   "dependencies": {
+    "@bpg/schema-core": "workspace:*",
     "zod": "^4.0.0"
   }
 }

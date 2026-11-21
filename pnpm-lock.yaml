@@ -250,17 +250,27 @@ importers:
 
   packages/contracts:
     dependencies:
+      '@bpg/schema-core':
+        specifier: workspace:*
+        version: link:../schema-core
       zod:
         specifier: ^4.0.0
         version: 4.6.7
 
-  packages/database-core: {}
+  packages/database-core:
+    dependencies:
+      '@bpg/schema-core':
+        specifier: workspace:*
+        version: link:../schema-core
 
   packages/database-postgres:
     dependencies:
       '@bpg/database-core':
         specifier: workspace:*
         version: link:../database-core
+      '@bpg/schema-core':
+        specifier: workspace:*
+        version: link:../schema-core
       pg:
         specifier: ^8.23.1
         version: 8.23.1
@@ -275,7 +285,11 @@ importers:
         specifier: ^2.7.2
         version: 2.7.2
 
-  packages/schema-core: {}
+  packages/schema-core:
+    dependencies:
+      zod:
+        specifier: ^4.0.0
+        version: 4.6.7
 
 packages:
 

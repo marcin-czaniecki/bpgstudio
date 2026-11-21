@@ -18,6 +18,7 @@ export const IPC_CHANNELS = {
   dbListSchemas: "db:list-schemas",
   dbListRelations: "db:list-relations",
   dbDescribeRelation: "db:describe-relation",
+  dbIntrospectSchema: "db:introspect-schema",
   dbTestProfile: "db:test-profile",
   dbOpenProfileSession: "db:open-profile-session",
   profilesList: "profiles:list",
