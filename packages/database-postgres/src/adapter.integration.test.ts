@@ -139,6 +139,32 @@ describe.skipIf(!url)("PostgreSQL adapter (integration)", () => {
     expect(reason).toMatchObject({ code: "CONNECTION_LOST" });
     await expect(session.close()).resolves.toBeUndefined();
   });
+
+  it("rejects execute (does not hang) when the backend is terminated mid-query", async () => {
+    const session = await adapter.openSession(base);
+    const running = session
+      .execute("SELECT pg_sleep(30)", { maxRows: 10, timeoutMs: 60000 })
+      .then(
+        () => "resolved",
+        (error: unknown) => error,
+      );
+    await waitFor(async () => {
+      const r = await admin.query(
+        "SELECT 1 FROM pg_stat_activity WHERE application_name = 'BPG Studio' AND query LIKE '%pg_sleep(30)%' AND pid <> pg_backend_pid()",
+      );
+      return r.rowCount === 1;
+    });
+    await admin.query(
+      "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = 'BPG Studio' AND pid <> pg_backend_pid()",
+    );
+    const outcome = await Promise.race([
+      running,
+      new Promise((r) => setTimeout(() => r("HUNG"), 8000)),
+    ]);
+    expect(outcome).not.toBe("HUNG");
+    expect(outcome).not.toBe("resolved");
+    await session.close();
+  }, 15000);
 });
 
 describe.skipIf(!url)(

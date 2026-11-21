@@ -67,6 +67,8 @@ export function createPgClientConfig(config: ConnectionConfig): ClientConfig {
   };
 }
 
+const CURSOR_CLOSE_TIMEOUT_MS = 2000;
+
 const defaultClientFactory: PgClientFactory = (config) => {
   const client = new Client(createPgClientConfig(config));
   return {
@@ -114,7 +116,16 @@ const defaultClientFactory: PgClientFactory = (config) => {
             typeof result.rowCount === "number" ? result.rowCount : null,
         };
       } finally {
-        await cursor.close().catch(() => undefined);
+        // If the backend died mid-query, ReadyForQuery never arrives and
+        // close() would hang forever, so bound the wait.
+        let timer: NodeJS.Timeout | undefined;
+        await Promise.race([
+          cursor.close().catch(() => undefined),
+          new Promise<void>((resolve) => {
+            timer = setTimeout(resolve, CURSOR_CLOSE_TIMEOUT_MS);
+          }),
+        ]);
+        clearTimeout(timer);
       }
     },
   };
@@ -158,7 +169,11 @@ class PostgresSession implements DatabaseSession {
   readonly info: SessionDetails;
   readonly #client: PgClientLike;
   readonly #listeners: Array<(reason: DatabaseError | null) => void> = [];
-  readonly #cancelBackend: (pid: number) => Promise<boolean>;
+  readonly #cancelBackend: (
+    pid: number,
+    stillCurrent: () => boolean,
+  ) => Promise<boolean>;
+  #runId = 0;
   #closing = false;
   #finished = false;
   #reason: DatabaseError | null = null;
@@ -168,7 +183,10 @@ class PostgresSession implements DatabaseSession {
   constructor(
     client: PgClientLike,
     info: SessionDetails,
-    cancelBackend: (pid: number) => Promise<boolean>,
+    cancelBackend: (
+      pid: number,
+      stillCurrent: () => boolean,
+    ) => Promise<boolean>,
   ) {
     this.#client = client;
     this.info = info;
@@ -195,6 +213,7 @@ class PostgresSession implements DatabaseSession {
       );
     }
     this.#running = true;
+    this.#runId += 1;
     this.#cancelledBy = null;
     const started = performance.now();
     const timer = setTimeout(() => {
@@ -234,8 +253,14 @@ class PostgresSession implements DatabaseSession {
     const pid = this.#client.processId();
     if (pid === null) return false;
     this.#cancelledBy ??= by;
+    // Opening the second connection takes time; the statement may finish (and the
+    // next one start) meanwhile, so the cancel is sent only if this run is still active.
+    const run = this.#runId;
     try {
-      return await this.#cancelBackend(pid);
+      return await this.#cancelBackend(
+        pid,
+        () => this.#running && this.#runId === run,
+      );
     } catch {
       return false;
     }
@@ -263,12 +288,14 @@ async function cancelBackend(
   createClient: PgClientFactory,
   config: ConnectionConfig,
   pid: number,
+  stillCurrent: () => boolean,
 ): Promise<boolean> {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   const client = createClient(config);
   client.onError(() => {});
   try {
     await client.connect();
+    if (!stillCurrent()) return false;
     const rows = await client.query(`SELECT pg_cancel_backend(${pid}) AS ok`);
     return rows[0]?.ok === true;
   } finally {
@@ -311,7 +338,8 @@ export function createPostgresAdapter(
             openedAt: new Date().toISOString(),
           },
           // The config (with the password) stays in this closure, in main only.
-          (pid) => cancelBackend(createClient, config, pid),
+          (pid, stillCurrent) =>
+            cancelBackend(createClient, config, pid, stillCurrent),
         );
       } catch (error: unknown) {
         await quietEnd(client);
